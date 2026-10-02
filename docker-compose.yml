@@ -1,0 +1,11 @@
+# Only MongoDB runs here. The detection service and backend need your own
+# Python/Node environment (GPU access, model downloads), so run those with
+# `python -m app.server` / `npm run dev` as described in README.md.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports: ["27017:27017"]
+    volumes: [mongo_data:/data/db]
+volumes:
+  mongo_data:

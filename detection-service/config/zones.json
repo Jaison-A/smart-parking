@@ -1,0 +1,16 @@
+{
+  "zones": [
+    {
+      "id": "ZONE_001",
+      "name": "Main gate no parking",
+      "type": "no_parking",
+      "points": [[0.078, 0.486], [0.547, 0.486], [0.586, 0.833], [0.039, 0.833]]
+    },
+    {
+      "id": "ZONE_002",
+      "name": "Visitor parking",
+      "type": "parking",
+      "points": [[0.60, 0.486], [0.95, 0.486], [0.98, 0.833], [0.63, 0.833]]
+    }
+  ]
+}

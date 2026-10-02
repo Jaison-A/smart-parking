@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pt
+backend/uploads/videos/*
+!backend/uploads/videos/.gitkeep
+backend/uploads/snapshots/*
+!backend/uploads/snapshots/.gitkeep
