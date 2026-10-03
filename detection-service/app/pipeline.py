@@ -141,6 +141,8 @@ class DetectionJob:
     def _read_plates(self, manager: SessionManager, reader, frame, frame_no: int) -> None:
         p = self.req.params
         for st in manager.plate_candidates():
+            if self._stop:
+                return  # Stop was clicked mid-frame - don't start another OCR read.
             # Stagger tracks so we never OCR every vehicle on the same frame.
             if (frame_no + st.track_id) % p.plate_every_n_frames:
                 continue

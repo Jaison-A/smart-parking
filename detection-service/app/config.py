@@ -16,7 +16,10 @@ def _flag(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     yolo_model: str = os.getenv("YOLO_MODEL", "yolo11s.pt")
-    yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "960"))
+    # 640 is the YOLO-standard inference size and roughly 2x faster than 960 on CPU
+    # with a small accuracy cost - the right default for CPU-only dev machines.
+    # Raise it back to 960+ once you have a GPU, via YOLO_IMGSZ in .env.
+    yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "640"))
     yolo_conf: float = float(os.getenv("YOLO_CONF", "0.3"))
 
     plate_ocr_enabled: bool = _flag("PLATE_OCR", True)

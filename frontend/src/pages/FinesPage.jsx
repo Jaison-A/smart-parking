@@ -21,13 +21,13 @@ export default function FinesPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-end justify-between mb-6">
+    <div className="p-4 md:p-8 max-w-4xl">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl">Fines</h1>
           <p className="text-sm text-ink/60 mt-1">Issued automatically the moment a violation is confirmed.</p>
         </div>
-        <select className="field w-40" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="field w-full md:w-40" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           <option value="issued">Issued</option>
           <option value="paid">Paid</option>
@@ -42,12 +42,12 @@ export default function FinesPage() {
       ) : (
         <div className="card divide-y divide-line">
           {fines.map((f) => (
-            <div key={f._id} className="flex items-center justify-between px-5 py-4">
-              <div>
+            <div key={f._id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-5 py-4">
+              <div className="min-w-0">
                 <div className="mono text-base">{f.plate || "Plate not read"}</div>
                 <div className="text-xs text-ink/50 mt-0.5">{f.reason}</div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 shrink-0">
                 <span className="mono">₹{f.amount}</span>
                 <span className={`text-xs font-medium ${STATUS_COLOR[f.status]}`}>{f.status}</span>
                 {f.status === "issued" && (

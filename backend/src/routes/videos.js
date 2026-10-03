@@ -130,15 +130,7 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
-    if (video.jobId) {
-      try {
-        await stopDetectionJob(video.jobId);
-      } catch (err) {
-        if (err.detectorStatus !== 404) throw err;
-        video.status = "stopped";
-        await video.save();
-      }
-    }
+    if (video.jobId) await stopDetectionJob(video.jobId);
     res.json({ stopping: true });
   } catch (err) { next(err); }
 });

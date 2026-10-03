@@ -56,8 +56,8 @@ export default function VideosPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-start justify-between mb-6">
+    <div className="p-4 md:p-8 max-w-4xl">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl">Videos</h1>
           <p className="text-sm text-ink/60 mt-1">
@@ -65,10 +65,10 @@ export default function VideosPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-outline" onClick={() => setShowCameraForm((v) => !v)}>
+          <button className="btn-outline flex-1 sm:flex-none" onClick={() => setShowCameraForm((v) => !v)}>
             Connect camera
           </button>
-          <label className="btn-primary cursor-pointer">
+          <label className="btn-primary cursor-pointer flex-1 sm:flex-none text-center">
             {uploading ? "Uploading…" : "Upload video"}
             <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onUpload} disabled={uploading} />
           </label>
@@ -76,7 +76,7 @@ export default function VideosPage() {
       </div>
 
       {showCameraForm && (
-        <form onSubmit={connectCamera} className="card p-4 mb-6 flex gap-2 items-end">
+        <form onSubmit={connectCamera} className="card p-4 mb-6 flex flex-col sm:flex-row gap-2 sm:items-end">
           <div className="flex-1">
             <label className="text-xs text-ink/60">Camera name</label>
             <input className="field mt-1" placeholder="e.g. Main gate CCTV"
@@ -105,22 +105,22 @@ export default function VideosPage() {
             <button
               key={v._id}
               onClick={() => navigate(`/videos/${v._id}`)}
-              className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-ink/[0.03]"
+              className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 px-5 py-4 text-left hover:bg-ink/[0.03]"
             >
-              <div>
-                <div className="text-sm font-medium">
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">
                   {v.originalName}
                   {v.sourceType === "stream" && (
                     <span className="ml-2 text-xs border border-ink/30 px-1.5 py-0.5">LIVE</span>
                   )}
                 </div>
-                <div className="text-xs text-ink/50 mt-0.5">
+                <div className="text-xs text-ink/50 mt-0.5 truncate">
                   {v.sourceType === "stream"
                     ? v.streamUrl
                     : `${(v.sizeBytes / (1024 * 1024)).toFixed(1)} MB`} · {new Date(v.createdAt).toLocaleString()}
                 </div>
               </div>
-              <div className={`text-xs font-medium ${STATUS_STYLE[v.status] || ""}`}>
+              <div className={`text-xs font-medium shrink-0 ${STATUS_STYLE[v.status] || ""}`}>
                 {v.status}{v.status === "running" ? ` · ${v.progress}%` : ""}
               </div>
             </button>

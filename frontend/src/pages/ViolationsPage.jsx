@@ -39,8 +39,8 @@ export default function ViolationsPage() {
   };
 
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex items-end justify-between mb-6">
+    <div className="p-4 md:p-8 max-w-5xl">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl">Violations</h1>
           <p className="text-sm text-ink/60 mt-1">
@@ -49,9 +49,9 @@ export default function ViolationsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <input className="field w-48" placeholder="Filter by plate"
+          <input className="field w-full md:w-48" placeholder="Filter by plate"
             value={plateFilter} onChange={(e) => setPlateFilter(e.target.value)} />
-          <button className="btn-outline" onClick={() => load(plateFilter)}>Search</button>
+          <button className="btn-outline shrink-0" onClick={() => load(plateFilter)}>Search</button>
         </div>
       </div>
 
@@ -60,7 +60,7 @@ export default function ViolationsPage() {
       ) : violations.length === 0 ? (
         <div className="card p-8 text-center text-sm text-ink/50">No violations recorded yet.</div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {violations.map((v) => (
             <div key={v._id} className="card overflow-hidden">
               <div className="grid grid-cols-3">
