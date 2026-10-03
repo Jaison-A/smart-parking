@@ -3,8 +3,13 @@ import mongoose from "mongoose";
 const videoSchema = new mongoose.Schema(
   {
     originalName: { type: String, required: true },
-    storedName: { type: String, required: true }, // filename on disk, uploads/videos/
-    sizeBytes: { type: Number, required: true },
+    // "upload": storedName is a filename on disk, uploads/videos/.
+    // "stream": streamUrl is a live source - an rtsp(s)://, http(s):// camera URL,
+    // or a bare webcam index ("0", "1", ...) - read directly, nothing is stored.
+    sourceType: { type: String, enum: ["upload", "stream"], default: "upload" },
+    storedName: String,
+    streamUrl: String,
+    sizeBytes: Number,
     width: Number,
     height: Number,
     status: {

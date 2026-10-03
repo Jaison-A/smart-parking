@@ -11,6 +11,8 @@ export default function VideosPage() {
   const [videos, setVideos] = useState(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showCameraForm, setShowCameraForm] = useState(false);
+  const [camera, setCamera] = useState({ name: "", streamUrl: "" });
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
@@ -42,20 +44,52 @@ export default function VideosPage() {
     }
   };
 
+  const connectCamera = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const { data } = await api.post("/api/videos/live", camera);
+      navigate(`/videos/${data.video._id}`);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    }
+  };
+
   return (
     <div className="p-8 max-w-4xl">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl">Videos</h1>
           <p className="text-sm text-ink/60 mt-1">
-            Upload a recorded clip to use in place of a live camera feed.
+            Upload a recorded clip, or connect a live camera.
           </p>
         </div>
-        <label className="btn-primary cursor-pointer">
-          {uploading ? "Uploading…" : "Upload video"}
-          <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onUpload} disabled={uploading} />
-        </label>
+        <div className="flex gap-2">
+          <button className="btn-outline" onClick={() => setShowCameraForm((v) => !v)}>
+            Connect camera
+          </button>
+          <label className="btn-primary cursor-pointer">
+            {uploading ? "Uploading…" : "Upload video"}
+            <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onUpload} disabled={uploading} />
+          </label>
+        </div>
       </div>
+
+      {showCameraForm && (
+        <form onSubmit={connectCamera} className="card p-4 mb-6 flex gap-2 items-end">
+          <div className="flex-1">
+            <label className="text-xs text-ink/60">Camera name</label>
+            <input className="field mt-1" placeholder="e.g. Main gate CCTV"
+              value={camera.name} onChange={(e) => setCamera((c) => ({ ...c, name: e.target.value }))} required />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs text-ink/60">Stream URL or webcam index</label>
+            <input className="field mt-1" placeholder="rtsp://... or 0"
+              value={camera.streamUrl} onChange={(e) => setCamera((c) => ({ ...c, streamUrl: e.target.value }))} required />
+          </div>
+          <button className="btn-primary">Connect</button>
+        </form>
+      )}
 
       {error && <div className="text-sm text-signal mb-4">{error}</div>}
 
@@ -74,9 +108,16 @@ export default function VideosPage() {
               className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-ink/[0.03]"
             >
               <div>
-                <div className="text-sm font-medium">{v.originalName}</div>
+                <div className="text-sm font-medium">
+                  {v.originalName}
+                  {v.sourceType === "stream" && (
+                    <span className="ml-2 text-xs border border-ink/30 px-1.5 py-0.5">LIVE</span>
+                  )}
+                </div>
                 <div className="text-xs text-ink/50 mt-0.5">
-                  {(v.sizeBytes / (1024 * 1024)).toFixed(1)} MB · {new Date(v.createdAt).toLocaleString()}
+                  {v.sourceType === "stream"
+                    ? v.streamUrl
+                    : `${(v.sizeBytes / (1024 * 1024)).toFixed(1)} MB`} · {new Date(v.createdAt).toLocaleString()}
                 </div>
               </div>
               <div className={`text-xs font-medium ${STATUS_STYLE[v.status] || ""}`}>

@@ -93,8 +93,10 @@ export default function VideoDetailPage() {
   };
 
   const stop = async () => {
-    setBusy(true);
-    try { await api.post(`/api/videos/${id}/stop`); } finally { setBusy(false); }
+    setBusy(true); setError("");
+    try { await api.post(`/api/videos/${id}/stop`); }
+    catch (err) { setError(apiErrorMessage(err)); }
+    finally { setBusy(false); }
   };
 
   const isRunning = video && ["queued", "running"].includes(video.status);
@@ -111,7 +113,7 @@ export default function VideoDetailPage() {
           <h1 className="font-display text-2xl">{video.originalName}</h1>
           <p className="text-sm text-ink/60 mt-1">
             Status: <span className="font-medium">{video.status}</span>
-            {video.status === "running" && ` · ${video.progress}%`}
+            {video.status === "running" && (video.sourceType === "stream" ? " · Live" : ` · ${video.progress}%`)}
             {video.error && <span className="text-signal"> · {video.error}</span>}
           </p>
         </div>

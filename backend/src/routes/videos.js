@@ -31,15 +31,44 @@ const upload = multer({
 export const videosRouter = Router();
 videosRouter.use(requireAuth);
 
+// What to hand the detector: a file path for an upload, or the raw URL/index for a
+// live camera - the Python service's resolve_video_source() understands both.
+function videoSource(video) {
+  return video.sourceType === "stream" ? video.streamUrl : path.join(VIDEO_DIR, video.storedName);
+}
+
+const RTSP_OR_HTTP = /^(rtsps?|https?):\/\/.+/i;
+
 // Upload a video to use in place of a live camera feed.
 videosRouter.post("/", upload.single("video"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No video file was uploaded (field name: video)" });
     const video = await Video.create({
       originalName: req.file.originalname,
+      sourceType: "upload",
       storedName: req.file.filename,
       sizeBytes: req.file.size,
       uploadedBy: req.user.sub,
+    });
+    res.status(201).json({ video });
+  } catch (err) { next(err); }
+});
+
+// Connect a live camera instead of uploading a file: an RTSP/HTTP stream URL, or a
+// bare webcam index ("0") for a camera plugged into the machine running the
+// detection service. Everything downstream (zones, start/stop, live feed) is the
+// same flow as an uploaded video.
+videosRouter.post("/live", async (req, res, next) => {
+  try {
+    const { name, streamUrl } = req.body;
+    if (!name || !streamUrl) return res.status(400).json({ error: "name and streamUrl are required" });
+    if (!RTSP_OR_HTTP.test(streamUrl) && !/^\d+$/.test(streamUrl)) {
+      return res.status(400).json({
+        error: "streamUrl must be an rtsp:// or http(s):// camera URL, or a webcam index like \"0\"",
+      });
+    }
+    const video = await Video.create({
+      originalName: name, sourceType: "stream", streamUrl, uploadedBy: req.user.sub,
     });
     res.status(201).json({ video });
   } catch (err) { next(err); }
@@ -64,7 +93,7 @@ videosRouter.get("/:id/frame", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
-    const jpeg = await fetchFirstFrame(path.join(VIDEO_DIR, video.storedName));
+    const jpeg = await fetchFirstFrame(videoSource(video));
     res.set("Content-Type", "image/jpeg").send(jpeg);
   } catch (err) { next(err); }
 });
@@ -85,7 +114,7 @@ videosRouter.post("/:id/start", async (req, res, next) => {
     const jobId = uuid();
     await startDetectionJob({
       jobId, videoId: video._id.toString(),
-      videoPath: path.join(VIDEO_DIR, video.storedName), zones,
+      videoPath: videoSource(video), zones,
       params: req.body?.params,
     });
     video.status = "queued";
@@ -101,7 +130,15 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
-    if (video.jobId) await stopDetectionJob(video.jobId);
+    if (video.jobId) {
+      try {
+        await stopDetectionJob(video.jobId);
+      } catch (err) {
+        if (err.detectorStatus !== 404) throw err;
+        video.status = "stopped";
+        await video.save();
+      }
+    }
     res.json({ stopping: true });
   } catch (err) { next(err); }
 });

@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -58,7 +59,20 @@ export default function LoginPage() {
           </div>
           <div>
             <label className="text-xs text-ink/60">Password</label>
-            <input className="field mt-1" type="password" name="password" value={form.password} onChange={onChange} required minLength={6} />
+            <div className="relative mt-1">
+              <input
+                className="field pr-16"
+                type={showPassword ? "text" : "password"}
+                name="password" value={form.password} onChange={onChange} required minLength={6}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-0 top-0 h-full px-3 text-xs text-ink/50 hover:text-ink"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           {error && <div className="text-sm text-signal">{error}</div>}
           <button className="btn-primary w-full" disabled={busy}>

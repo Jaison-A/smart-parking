@@ -6,7 +6,7 @@ import { Video } from "../models/Video.js";
 import { ParkingSession } from "../models/ParkingSession.js";
 import { Violation } from "../models/Violation.js";
 import { requireDetectorKey } from "../middleware/detectorAuth.js";
-import { issueFineForViolation } from "../services/fineService.js";
+import { issueFineForViolation, finalizeFineAmount } from "../services/fineService.js";
 import { notifyControllers } from "../services/notifier.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,11 +23,13 @@ detectorEventsRouter.post("/", async (req, res, next) => {
     const event = req.body;
     switch (event.type) {
       case "session_started":
+        await upsertSession(event);
+        break;
       case "session_updated":
         await upsertSession(event);
         break;
       case "session_ended":
-        await upsertSession(event, { status: "closed" });
+        await handleSessionEnded(event);
         break;
       case "violation":
         await handleViolation(event);
@@ -51,8 +53,19 @@ detectorEventsRouter.post("/", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Saves a base64 JPEG the detector sent and returns its path relative to uploads/,
+// or null if the event carried no image for this stage.
+async function saveSnapshot(base64, prefix) {
+  if (!base64) return null;
+  await fs.mkdir(SNAPSHOT_DIR, { recursive: true });
+  const filename = `${prefix}-${Date.now()}.jpg`;
+  await fs.writeFile(path.join(SNAPSHOT_DIR, filename), Buffer.from(base64, "base64"));
+  return `uploads/snapshots/${filename}`;
+}
+
 async function upsertSession(event, extra = {}) {
   const s = event.session;
+  const entrySnapshotPath = await saveSnapshot(event.entrySnapshot, `${s.sessionId}-entry`);
   const doc = await ParkingSession.findOneAndUpdate(
     { sessionKey: s.sessionId },
     {
@@ -60,6 +73,7 @@ async function upsertSession(event, extra = {}) {
       zoneName: s.zoneName, zoneType: s.zoneType, vehicleType: s.vehicleType,
       plate: s.plate, plateConfidence: s.plateConfidence,
       startedAt: s.startedAt, endedAt: s.endedAt, durationSeconds: s.durationSeconds,
+      ...(entrySnapshotPath && { entrySnapshotPath }),
       ...extra,
     },
     { upsert: true, new: true }
@@ -68,23 +82,43 @@ async function upsertSession(event, extra = {}) {
   return doc;
 }
 
+async function handleSessionEnded(event) {
+  const exitSnapshotPath = await saveSnapshot(event.exitSnapshot, `${event.session.sessionId}-exit`);
+  const session = await upsertSession(event, { status: "closed", ...(exitSnapshotPath && { exitSnapshotPath }) });
+
+  // Correct the violation (and its fine) to the vehicle's real total parked time -
+  // the violation was first raised using only the duration available at that moment.
+  if (session.isViolation) {
+    const violation = await Violation.findOne({ session: session._id }).populate("fine");
+    if (violation && !violation.finalized) {
+      violation.endedAt = session.endedAt;
+      violation.durationSeconds = session.durationSeconds;
+      violation.finalized = true;
+      if (exitSnapshotPath) violation.exitSnapshotPath = exitSnapshotPath;
+      await violation.save();
+      if (violation.fine) await finalizeFineAmount(violation.fine, session.durationSeconds, session.zoneName);
+      notifyControllers("violation:updated", {
+        videoId: event.videoId, violation: await violation.populate("fine"),
+      });
+    }
+  }
+}
+
 async function handleViolation(event) {
   const session = await upsertSession(event, { isViolation: true });
-
-  const filename = `${session.sessionKey}-${Date.now()}.jpg`;
-  if (event.snapshot) {
-    await fs.mkdir(SNAPSHOT_DIR, { recursive: true });
-    await fs.writeFile(path.join(SNAPSHOT_DIR, filename), Buffer.from(event.snapshot, "base64"));
-  }
+  const violationSnapshotPath = await saveSnapshot(event.violationSnapshot, `${session.sessionKey}-violation`);
 
   const violation = await Violation.create({
     session: session._id, video: event.videoId, zoneName: session.zoneName,
     vehicleType: session.vehicleType, plate: session.plate,
-    durationSeconds: session.durationSeconds,
-    snapshotPath: event.snapshot ? `uploads/snapshots/${filename}` : "",
+    startedAt: session.startedAt, durationSeconds: session.durationSeconds,
+    snapshotPath: violationSnapshotPath || "",
+    entrySnapshotPath: session.entrySnapshotPath || null,
   });
 
   // Automatic fine, as the project requires: no controller action needed to issue it.
+  // The amount here is provisional - it is corrected to the final total duration
+  // once the vehicle actually leaves (see handleSessionEnded).
   const fine = await issueFineForViolation(violation);
   violation.fine = fine._id;
   await violation.save();

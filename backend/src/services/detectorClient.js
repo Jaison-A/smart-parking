@@ -8,7 +8,10 @@ async function call(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw Object.assign(new Error(`Detector service error (${res.status}): ${body}`), { status: 502 });
+    throw Object.assign(new Error(`Detector service error (${res.status}): ${body}`), {
+      status: 502,
+      detectorStatus: res.status,
+    });
   }
   return res.headers.get("content-type")?.includes("application/json") ? res.json() : res;
 }

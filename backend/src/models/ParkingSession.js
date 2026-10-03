@@ -18,6 +18,10 @@ const sessionSchema = new mongoose.Schema(
     durationSeconds: { type: Number, default: 0 },
     isViolation: { type: Boolean, default: false },
     status: { type: String, enum: ["active", "closed"], default: "active" },
+    // Evidence: a photo when the vehicle is first seen parked and one when it
+    // leaves, for every session - legal parking included, not just violations.
+    entrySnapshotPath: { type: String, default: null },
+    exitSnapshotPath: { type: String, default: null },
   },
   { timestamps: true }
 );

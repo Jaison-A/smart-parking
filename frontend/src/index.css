@@ -20,3 +20,16 @@
   .card { @apply border border-line bg-white; }
   .mono { @apply font-mono tracking-tight; }
 }
+
+/* Sliding "still working" bar for states with no real percentage yet
+   (job starting, live camera stream) - used by ProgressBar in VideoDetailPage. */
+@keyframes indeterminate-slide {
+  0%   { left: -33%; }
+  100% { left: 100%; }
+}
+.animate-indeterminate {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 33%;
+  animation: indeterminate-slide 1.1s ease-in-out infinite;
+}

@@ -21,3 +21,14 @@ export async function issueFineForViolation(violation) {
       `without a valid permit.`,
   });
 }
+
+// Called when the vehicle finally leaves: the fine was first issued using the
+// duration at the threshold-crossing moment (so the notification is immediate),
+// then corrected here to reflect the real total time parked.
+export async function finalizeFineAmount(fine, finalDurationSeconds, zoneName) {
+  fine.amount = calculateFineAmount(finalDurationSeconds);
+  fine.reason = `Parked in "${zoneName}" for ${Math.round(finalDurationSeconds)}s total ` +
+    `without a valid permit.`;
+  await fine.save();
+  return fine;
+}

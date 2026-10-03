@@ -12,6 +12,7 @@ from app.config import settings
 from app.events import EventClient
 from app.pipeline import DetectionJob
 from app.schemas import JobRequest
+from app.source import open_capture
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 app = FastAPI(title="Curbside detection service")
@@ -23,12 +24,17 @@ def require_key(x_detector_key: str = Header(default="")) -> None:
         raise HTTPException(401, "Invalid detector key")
 
 
-def safe_video_path(raw: str) -> Path:
-    """Only files inside VIDEO_ROOT may be opened - never trust a path from a request."""
+def resolve_video_source(raw: str) -> str:
+    """A video source is either an uploaded file (must live inside VIDEO_ROOT - never
+    trust a path from a request) or a live source: an rtsp(s):// / http(s):// camera
+    URL, or a bare integer webcam index ("0", "1", ...). Live sources are returned
+    unchanged - cv2.VideoCapture accepts both strings and ints as a source."""
+    if raw.startswith(("rtsp://", "rtsps://", "http://", "https://")) or raw.isdigit():
+        return raw
     path = Path(raw).resolve()
     if settings.video_root not in path.parents or not path.is_file():
         raise HTTPException(400, "Video not found inside the allowed video folder")
-    return path
+    return str(path)
 
 
 @app.get("/health")
@@ -40,7 +46,7 @@ def health():
 def start_job(req: JobRequest):
     if any(j.status in ("queued", "running") for j in jobs.values()):
         raise HTTPException(409, "A detection job is already running")
-    req.video_path = str(safe_video_path(req.video_path))
+    req.video_path = resolve_video_source(req.video_path)
     job = DetectionJob(req, EventClient(settings.backend_url, settings.api_key))
     jobs[req.job_id] = job
     threading.Thread(target=job.run, daemon=True, name=f"job-{req.job_id}").start()
@@ -81,12 +87,13 @@ def stream(job_id: str):
 
 @app.get("/frame", dependencies=[Depends(require_key)])
 def first_frame(path: str = Query(...)):
-    """A still frame used by the dashboard's zone-drawing tool."""
-    cap = cv2.VideoCapture(str(safe_video_path(path)))
+    """A still frame used by the dashboard's zone-drawing tool (works for a live
+    camera too - it just grabs whatever the camera shows right now)."""
+    cap = open_capture(resolve_video_source(path))
     ok, frame = cap.read()
     cap.release()
     if not ok:
-        raise HTTPException(422, "Could not read a frame from this video")
+        raise HTTPException(422, "Could not read a frame from this source - is the camera reachable?")
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buf.tobytes(), media_type="image/jpeg")
 

@@ -11,7 +11,8 @@ violationsRouter.get("/", async (req, res, next) => {
     if (req.query.video) filter.video = req.query.video;
     if (req.query.plate) filter.plate = new RegExp(req.query.plate, "i");
     res.json({
-      violations: await Violation.find(filter).populate("fine").sort({ createdAt: -1 }).limit(200),
+      violations: await Violation.find(filter).populate("fine").populate("session")
+        .sort({ createdAt: -1 }).limit(200),
     });
   } catch (err) { next(err); }
 });

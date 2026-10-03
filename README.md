@@ -115,6 +115,58 @@ dashboard and issues the fine after `plate_wait_s` — it just says
 "plate not read" instead of a number, which is worth mentioning as a known
 limitation in your report.
 
+## Using a cloud MongoDB (e.g. Atlas) instead of local Mongo
+
+Nothing to change in code. In `backend/.env`, set:
+```
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/smart_parking
+```
+(whitelist your IP / allow access from anywhere in Atlas's network settings, and
+URL-encode any special characters in the password). You can skip
+`docker compose up -d mongo` entirely in that case.
+
+## Connecting a live camera instead of uploading a file
+
+On the Videos page, click **Connect camera** and give it an RTSP URL
+(`rtsp://user:pass@192.168.1.50:554/stream1`, whatever your camera/DVR provides)
+or a plain webcam index (`0` for the first camera attached to the machine running
+`detection-service`). Everything else — drawing zones, Start detection, the live
+feed, violations, fines — works exactly the same as with an uploaded video; the
+only difference is the detector reads frames from the camera instead of a file,
+and it automatically retries for about 20 seconds if the camera drops out instead
+of ending the job.
+
+**Important:** the camera only needs to be reachable from wherever
+`detection-service` runs — your laptop does not need to be able to reach it, and
+the browser never touches the camera feed directly.
+
+## Does detection keep working if nobody has the dashboard open?
+
+Yes. Clicking **Start detection** just tells the Python service to start
+processing — from then on it runs as an independent background job, posting
+events straight to the Node backend regardless of whether any browser is
+connected. Violations are still recorded and fines are still issued; you only
+need the dashboard open to *see* the live toast notification and video feed
+the moment it happens. If you want a camera to start processing automatically
+on boot rather than waiting for someone to click Start, call
+`POST /api/videos/:id/start` from a small script instead of the UI.
+
+## Evidence captured per vehicle
+
+Every parking session — legal or not — stores:
+- entry photo + time (first seen parked)
+- exit photo + time (when it left)
+- total duration
+- vehicle type and plate (if read)
+
+A **violation** additionally stores a close-up photo at the exact moment the
+30-second threshold was crossed, and is linked to a fine. The fine is created
+immediately (so the notification and amount aren't delayed), using the
+duration at that moment; once the vehicle actually leaves, the violation's
+duration and the fine amount are both corrected to the real total time
+parked — shown on the Violations page as "still parked (estimate)" until that
+happens, then marked finalized.
+
 ## Testing
 
 ```bash
@@ -132,6 +184,35 @@ cd detection-service && pytest tests/ -v         # session / violation logic, no
   resolution. Everything else (plate reading, the Node backend, fines,
   Socket.IO notifications, the React dashboard) is new, to meet the
   requirements you described.
+
+## Troubleshooting "Start detection" does nothing / no violations appear
+
+Check these in order:
+
+1. **All three services actually running?** The frontend only *asks* the backend
+   to start a job; the backend asks `detection-service`. If `detection-service`
+   isn't running, the backend's `/start` call fails — check the backend's
+   terminal for a connection-refused error.
+2. **`DETECTOR_API_KEY` identical in both `.env` files?** A mismatch returns a
+   401 from the detector, surfaced back to the frontend as an error message —
+   read it.
+3. **Same machine / shared filesystem?** `detection-service` opens the uploaded
+   video by *file path*, not by downloading it — it must be able to see the
+   exact file the backend saved. Running both on the same machine (the normal
+   setup for this project) always satisfies this automatically; running them
+   in separate Docker containers or on separate machines needs a shared volume.
+4. **Zones drawn before clicking Start?** The button is disabled until at least
+   one zone exists — if nothing happens when you click it, check the browser
+   console for the actual error response.
+5. **Watch `detection-service`'s terminal.** It logs `job <id> started: WxH @
+   FPSfps, N zones` the moment a job begins, and every event it sends — if you
+   see that line but nothing shows up in the dashboard, the problem is between
+   the detector and the backend (check `DETECTOR_API_KEY` again); if you never
+   see that line, the problem is between the frontend/backend and the detector.
+6. **No vehicles in the zone, or threshold not reached yet.** The default is 30
+   seconds stationary before a violation fires — for legal parking there's no
+   threshold, a session just needs ~5 seconds stationary to appear in "Active
+   vehicles" on the video page.
 
 ## Known limitations (worth stating in your report)
 
