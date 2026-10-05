@@ -7,6 +7,20 @@ import ZoneCanvas from "../components/ZoneCanvas.jsx";
 const DETECTOR_STREAM = import.meta.env.VITE_DETECTOR_STREAM_URL;
 const ROWS_COLLAPSED = 6;
 
+// With `responseType: "blob"`, axios hands back the error body as a Blob too
+// (not parsed JSON) - apiErrorMessage() can't read that directly, so unwrap it
+// here before falling back to the generic message.
+async function blobErrorMessage(err) {
+  const blob = err?.response?.data;
+  if (blob instanceof Blob) {
+    try {
+      const { error } = JSON.parse(await blob.text());
+      if (error) return error;
+    } catch { /* not JSON - fall through */ }
+  }
+  return apiErrorMessage(err);
+}
+
 function fmtDuration(s) {
   s = Math.round(s || 0);
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -45,7 +59,7 @@ export default function VideoDetailPage() {
   useEffect(() => {
     api.get(`/api/videos/${id}/frame`, { responseType: "blob" })
       .then((r) => setFrameUrl(URL.createObjectURL(r.data)))
-      .catch(() => {}); // fine before a video has a readable frame yet
+      .catch(async (err) => setError(await blobErrorMessage(err)));
   }, [id]);
 
   // Live updates while a job is running - status, progress and every session change.

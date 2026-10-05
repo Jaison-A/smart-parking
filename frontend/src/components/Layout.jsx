@@ -53,7 +53,8 @@ export default function Layout({ children }) {
 
       <SidebarContent
         user={user} logout={logout} navigate={navigate} connected={connected}
-        className="hidden md:flex md:w-56 md:shrink-0 md:border-r md:border-line md:flex-col"
+        className="hidden md:flex md:w-56 md:shrink-0 md:border-r md:border-line md:flex-col
+                   md:sticky md:top-0 md:h-screen md:overflow-y-auto"
       />
 
       {mobileNavOpen && (
