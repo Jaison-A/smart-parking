@@ -22,4 +22,6 @@ export const env = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
   fineBaseAmount: Number(process.env.FINE_BASE_AMOUNT || 500),
   finePerExtraMinute: Number(process.env.FINE_PER_EXTRA_MINUTE || 20),
+  // Flat fine for spacing / bay violations (they have no "time over the limit").
+  fineRuleAmount: Number(process.env.FINE_RULE_AMOUNT || 200),
 };

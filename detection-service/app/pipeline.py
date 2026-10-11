@@ -164,6 +164,9 @@ class DetectionJob:
             "startedAt": self._iso(s.started_at),
             "endedAt": self._iso(s.ended_at) if s.ended_at is not None else None,
             "durationSeconds": round(s.duration(t), 1),
+            "bayName": s.bay_name,
+            "violationKind": s.violation_kind if s.violation_emitted else None,
+            "violationDetail": s.violation_detail,
         }
 
     def _emit(self, ev: Event, t: float, frame) -> None:
@@ -210,10 +213,15 @@ class DetectionJob:
             if s is None:
                 cv2.rectangle(img, (x1, y1), (x2, y2), GRAY, 1)
                 continue
-            color = TEAL if not s.zone.is_restricted else (RED if s.violation_emitted else AMBER)
+            if s.violation_emitted:
+                color = RED  # no-parking, too-close and bay violations alike
+            else:
+                color = TEAL if not s.zone.is_restricted else AMBER
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
             secs = int(s.duration(t))
             label = f"{s.plate or 'reading plate'}  {secs // 60:02d}:{secs % 60:02d}"
+            if s.bay_name:
+                label += f"  [{s.bay_name}]"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(img, (x1, y1 - th - 10), (x1 + tw + 8, y1), color, -1)
             cv2.putText(img, label, (x1 + 4, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6,

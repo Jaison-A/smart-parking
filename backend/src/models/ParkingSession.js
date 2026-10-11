@@ -9,6 +9,7 @@ const sessionSchema = new mongoose.Schema(
     trackId: { type: Number, required: true },
     zone: { type: mongoose.Schema.Types.ObjectId, ref: "Zone" },
     zoneName: String,
+    bayName: { type: String, default: null }, // bay the vehicle is allocated, if bays are drawn
     zoneType: { type: String, enum: ["parking", "no_parking"], required: true },
     vehicleType: { type: String, enum: ["car", "motorcycle", "bus", "truck"], required: true },
     plate: { type: String, default: null },

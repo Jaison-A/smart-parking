@@ -4,6 +4,10 @@ const violationSchema = new mongoose.Schema(
   {
     session: { type: mongoose.Schema.Types.ObjectId, ref: "ParkingSession", required: true },
     video: { type: mongoose.Schema.Types.ObjectId, ref: "Video", required: true },
+    // What rule was broken. no_parking is fined by how long the vehicle stayed;
+    // the other three are flat-rate and need no duration to be "finalized".
+    kind: { type: String, enum: ["no_parking", "spacing", "bay_straddle", "bay_occupied"], default: "no_parking" },
+    detail: { type: String, default: null }, // human-readable reason, e.g. "Bay 3 is already occupied"
     zoneName: { type: String, required: true },
     vehicleType: { type: String, required: true },
     plate: { type: String, default: null },

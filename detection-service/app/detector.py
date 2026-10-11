@@ -16,11 +16,12 @@ class VehicleDetector:
         results = self.model.track(
             frame,
             persist=True,
-            tracker="bytetrack.yaml",
+            tracker=settings.tracker,
             classes=list(VEHICLE_CLASSES),
             imgsz=settings.yolo_imgsz,
             conf=settings.yolo_conf,
             iou=0.5,
+            max_det=300,
             verbose=False,
         )
         detections: list[dict] = []

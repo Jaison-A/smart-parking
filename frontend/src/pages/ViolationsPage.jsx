@@ -169,6 +169,8 @@ export default function ViolationsPage({ mode = "all" }) {
   );
 }
 
+const KIND_LABEL = { spacing: "Too close", bay_straddle: "Outside bay", bay_occupied: "Bay occupied" };
+
 function ViolationCard({ v, onPhoto, onAcknowledge }) {
   return (
     <div className="card overflow-hidden">
@@ -187,6 +189,9 @@ function ViolationCard({ v, onPhoto, onAcknowledge }) {
           )}
         </div>
         <div className="text-sm text-ink/60 mt-1">{v.zoneName} · {v.vehicleType}</div>
+        {v.kind && v.kind !== "no_parking" && (
+          <div className="text-sm text-amber mt-1">{KIND_LABEL[v.kind]}{v.detail ? ` — ${v.detail}` : ""}</div>
+        )}
         <div className="text-sm mt-1">
           <span className="mono">{fmtDuration(v.durationSeconds)}</span> total
           {!v.finalized && <span className="text-amber"> · still parked (estimate)</span>}

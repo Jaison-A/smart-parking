@@ -6,6 +6,8 @@ vehicle repeatedly and only trust a plate once several reads agree.
 import re
 from collections import Counter, defaultdict
 
+from app.config import settings
+
 _TO_DIGIT = str.maketrans("OQDIZSBG", "00012586")
 _TO_LETTER = str.maketrans("012586", "OIZSBG")
 
@@ -67,23 +69,42 @@ class PlateReader:
         x1, y1, x2, y2 = bbox
         h, w = frame.shape[:2]
         crop = frame[max(y1, 0):min(y2, h), max(x1, 0):min(x2, w)]
-        if crop.size == 0 or crop.shape[1] < 40:
+        # A plate is roughly a quarter of a car's width: on a small, distant vehicle
+        # there are only a few pixels of plate and OCR just burns CPU guessing.
+        if crop.size == 0 or crop.shape[1] < max(40, settings.plate_min_vehicle_px):
             return None
 
-        crop = self._locate_plate(crop)
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        scale = max(1.0, 320 / gray.shape[1])
+        region = cv2.cvtColor(self._locate_plate(crop), cv2.COLOR_BGR2GRAY)
+        scale = max(1.0, 320 / region.shape[1])
         if scale > 1:
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(gray)
+            region = cv2.resize(region, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
-        fragments = self._ocr.readtext(
-            gray, detail=1, paragraph=False,
-            allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        )
-        return self._best_match(fragments)
+        # Two renderings of the same crop: contrast-boosted, then sharpened + binarised
+        # (helps worn / glare-washed plates). Stop at the first one that yields a
+        # plate matching the expected format.
+        for image in self._variants(region):
+            fragments = self._ocr.readtext(
+                image, detail=1, paragraph=False,
+                allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            )
+            match = self._best_match(fragments)
+            if match:
+                return match
+        return None
 
     # ----------------------------------------------------------------- helpers
+    @staticmethod
+    def _variants(gray):
+        import cv2
+        import numpy as np
+
+        yield cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(gray)
+        blurred = cv2.GaussianBlur(gray, (0, 0), 2)
+        sharp = cv2.addWeighted(gray, 1.8, blurred, -0.8, 0)
+        _, binary = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Plates are usually dark-on-light; if the result is mostly dark, flip it.
+        yield binary if np.mean(binary) > 127 else cv2.bitwise_not(binary)
+
     def _locate_plate(self, vehicle_crop):
         """Tight plate crop if a plate model is configured, else the lower part of the vehicle."""
         if self._plate_model is not None:

@@ -16,8 +16,8 @@ zonesRouter.get("/", async (req, res, next) => {
 zonesRouter.post("/", async (req, res, next) => {
   try {
     const { name, type, points, video } = req.body;
-    if (!name || !["parking", "no_parking"].includes(type) || !Array.isArray(points) || points.length < 3) {
-      return res.status(400).json({ error: "name, type (parking|no_parking) and 3+ points are required" });
+    if (!name || !["parking", "no_parking", "bay"].includes(type) || !Array.isArray(points) || points.length < 3) {
+      return res.status(400).json({ error: "name, type (parking|no_parking|bay) and 3+ points are required" });
     }
     if (!(await Video.exists({ _id: video }))) {
       return res.status(404).json({ error: "Video not found" });

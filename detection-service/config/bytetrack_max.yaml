@@ -1,0 +1,10 @@
+# Used when DETECTION_MODE=max. Same ByteTrack, but more willing to start a track
+# on a weak detection (distant / partly hidden vehicles) and slower to forget a
+# vehicle that goes briefly out of sight behind another one.
+tracker_type: bytetrack
+track_high_thresh: 0.20
+track_low_thresh: 0.10
+new_track_thresh: 0.20
+track_buffer: 90
+match_thresh: 0.8
+fuse_score: True

@@ -12,6 +12,15 @@ export function calculateFineAmount(durationSeconds, thresholdSeconds = 30) {
 }
 
 export async function issueFineForViolation(violation) {
+  // Spacing / bay violations: a flat fine, with the specific reason as the reason.
+  if (violation.kind !== "no_parking") {
+    return Fine.create({
+      violation: violation._id,
+      plate: violation.plate,
+      amount: env.fineRuleAmount,
+      reason: `${violation.detail || "Parking rule broken"} in "${violation.zoneName}".`,
+    });
+  }
   const amount = calculateFineAmount(violation.durationSeconds);
   return Fine.create({
     violation: violation._id,

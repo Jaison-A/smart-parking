@@ -219,6 +219,7 @@ export default function VideoDetailPage() {
                   <select className="field sm:w-40" value={draftType} onChange={(e) => setDraftType(e.target.value)}>
                     <option value="no_parking">No parking</option>
                     <option value="parking">Parking</option>
+                    <option value="bay">Bay (one slot)</option>
                   </select>
                 </div>
                 <ZoneCanvas frameUrl={frameUrl} zones={zones} draftType={draftType} onComplete={saveZone} />
@@ -241,7 +242,8 @@ export default function VideoDetailPage() {
             {zones.map((z) => (
               <span key={z._id}
                 className={`flex items-center gap-2 border px-3 py-1 text-xs ${
-                  z.type === "no_parking" ? "border-signal text-signal" : "border-ok text-ok"}`}>
+                  z.type === "no_parking" ? "border-signal text-signal"
+                    : z.type === "bay" ? "border-[#1EA7FF] text-[#0A7CC4]" : "border-ok text-ok"}`}>
                 {z.name}
                 {!isRunning && (
                   <button onClick={() => deleteZone(z._id)} aria-label={`Delete ${z.name}`}>✕</button>
@@ -325,7 +327,7 @@ function SessionTable({ title, rows, onImageClick }) {
                   <tr key={s.sessionKey} className="border-b border-line last:border-0">
                     <td className="px-4 py-2 mono whitespace-nowrap">{s.plate || "—"}</td>
                     <td className="px-4 py-2 whitespace-nowrap">{s.vehicleType}</td>
-                    <td className="px-4 py-2">{s.zoneName}</td>
+                    <td className="px-4 py-2">{s.zoneName}{s.bayName && <span className="text-ink/50"> · {s.bayName}</span>}</td>
                     <td className="px-4 py-2 mono whitespace-nowrap">{fmtDuration(s.durationSeconds)}</td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       {s.isViolation ? (

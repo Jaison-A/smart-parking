@@ -7,6 +7,16 @@ Lifecycle of one vehicle:
   3. Inside a no-parking zone, once the session passes `no_parking_threshold_s`
      a violation is raised (once per session).
   4. The session closes when the vehicle drives off, leaves the zone, or its track is lost.
+
+Two further rules apply to vehicles parked in a (legal) parking zone; a session
+raises at most ONE violation in total, whichever rule trips first:
+  * spacing - a vehicle that parks side by side with an already-parked vehicle,
+    closer than `min_gap_ratio` of its width, is flagged (the later arrival is the
+    one at fault). Only vehicles in the same row are compared, so a car merely
+    hidden behind another in the camera view is not mistaken for a neighbour.
+  * bays    - if bays are drawn, a parked vehicle is allocated the bay its ground
+    footprint sits in. It is flagged if it straddles the bay lines, or if another
+    vehicle already holds that bay.
 """
 import uuid
 from collections import deque
@@ -15,6 +25,11 @@ from dataclasses import dataclass, field
 from app.plates import PlateVote
 from app.schemas import JobParams
 from app.zones import Zone, find_zone
+
+# Bottom share of a vehicle's box treated as its ground "footprint" for bay checks.
+FOOTPRINT_FRACTION = 0.4
+# Below this overlap a vehicle isn't considered to be in a bay at all.
+BAY_ASSIGN_MIN = 0.15
 
 
 @dataclass(eq=False)
@@ -29,7 +44,13 @@ class ParkingSession:
     plate_confidence: float | None = None
     bbox: tuple = (0, 0, 0, 0)
     violation_emitted: bool = False
+    violation_kind: str = "no_parking"  # no_parking | spacing | bay_straddle | bay_occupied
+    violation_detail: str | None = None
+    bay_name: str | None = None
+    rule_kind: str | None = None  # rule currently being tripped, and since when
+    rule_since: float | None = None
     plate_dirty: bool = False
+    info_dirty: bool = False  # something other than the plate changed (e.g. its bay)
     last_heartbeat: float = 0.0
 
     def duration(self, now: float) -> float:
@@ -58,11 +79,14 @@ class TrackState:
     moving_since: float | None = None
     session: ParkingSession | None = None
     votes: PlateVote | None = None
+    bay: Zone | None = None  # bay this vehicle currently sits in
+    bay_overlap: float = 0.0
 
 
 class SessionManager:
     def __init__(self, zones: list[Zone], params: JobParams):
-        self.zones = zones
+        self.zones = [z for z in zones if not z.is_bay]
+        self.bays = [z for z in zones if z.is_bay]
         self.p = params
         self.tracks: dict[int, TrackState] = {}
 
@@ -80,6 +104,7 @@ class SessionManager:
                     votes=PlateVote(max_attempts=self.p.plate_max_attempts),
                 )
             events += self._step(st, det, t)
+        events += self._check_rules(t)
         events += self._sweep(t, seen)
         return events
 
@@ -158,10 +183,90 @@ class SessionManager:
                 s.violation_emitted = True
                 s.last_heartbeat, s.plate_dirty = t, False
                 events.append(Event("violation", s))
-            elif s.plate_dirty or t - s.last_heartbeat >= p.heartbeat_s:
-                s.last_heartbeat, s.plate_dirty = t, False
+            elif s.plate_dirty or s.info_dirty or t - s.last_heartbeat >= p.heartbeat_s:
+                s.last_heartbeat, s.plate_dirty, s.info_dirty = t, False, False
                 events.append(Event("session_updated", s))
         return events
+
+    # ------------------------------------------------- spacing and bay rules
+    def _check_rules(self, t: float) -> list[Event]:
+        p = self.p
+        parked = [st for st in self.tracks.values()
+                  if st.session is not None and st.last_seen == t
+                  and not st.session.zone.is_restricted]
+        if not parked:
+            return []
+
+        # 1. Allocate each parked vehicle to the bay its footprint overlaps most.
+        occupants: dict[str, list[TrackState]] = {}
+        for st in parked:
+            st.bay, st.bay_overlap = self._allocate_bay(st.bbox)
+            name = st.bay.name if st.bay else None
+            if st.session.bay_name != name:
+                st.session.bay_name, st.session.info_dirty = name, True
+            if st.bay is not None and st.bay_overlap >= p.bay_min_overlap:
+                occupants.setdefault(st.bay.id, []).append(st)
+
+        # 2. What, if anything, is each vehicle doing wrong right now?
+        problems: dict[int, tuple[str, str]] = {}
+        for st in parked:
+            if st.bay is not None:
+                if st.bay_overlap < p.bay_min_overlap:
+                    problems[st.track_id] = ("bay_straddle", f"Not parked inside a single bay ({st.bay.name})")
+            elif p.min_gap_ratio > 0 and self._too_close(st, parked):
+                problems[st.track_id] = ("spacing", "Parked too close to another vehicle")
+        for group in occupants.values():
+            group.sort(key=lambda s_: (s_.session.started_at, s_.track_id))
+            for later in group[1:]:  # first to arrive keeps the bay
+                problems[later.track_id] = ("bay_occupied", f"{later.bay.name} is already occupied by another vehicle")
+
+        # 3. A problem must persist for rule_hold_s before it becomes a violation.
+        events: list[Event] = []
+        for st in parked:
+            s = st.session
+            problem = problems.get(st.track_id)
+            if problem is None:
+                s.rule_kind = s.rule_since = None
+                continue
+            kind, detail = problem
+            if s.rule_kind != kind:
+                s.rule_kind, s.rule_since = kind, t
+            if not s.violation_emitted and t - s.rule_since >= p.rule_hold_s:
+                s.violation_emitted, s.violation_kind, s.violation_detail = True, kind, detail
+                s.last_heartbeat, s.plate_dirty = t, False
+                events.append(Event("violation", s))
+        return events
+
+    def _allocate_bay(self, bbox: tuple) -> tuple[Zone | None, float]:
+        if not self.bays:
+            return None, 0.0
+        x1, y1, x2, y2 = bbox
+        footprint = (x1, int(y2 - (y2 - y1) * FOOTPRINT_FRACTION), x2, y2)
+        best, best_f = None, 0.0
+        for bay in self.bays:
+            f = bay.overlap_fraction(footprint)
+            if f > best_f:
+                best, best_f = bay, f
+        return (best, best_f) if best_f >= BAY_ASSIGN_MIN else (None, 0.0)
+
+    def _too_close(self, st: TrackState, parked: list[TrackState]) -> bool:
+        """True if `st` sits side by side with an EARLIER-parked vehicle in the same
+        zone, with a gap narrower than min_gap_ratio of the narrower vehicle."""
+        a, s = st.bbox, st.session
+        for other in parked:
+            o = other.session
+            if other is st or o.zone.id != s.zone.id:
+                continue
+            if (o.started_at, other.track_id) >= (s.started_at, st.track_id):
+                continue  # the later arrival is the one at fault, not the first
+            b = other.bbox
+            same_row = min(a[3], b[3]) - max(a[1], b[1]) >= 0.5 * min(a[3] - a[1], b[3] - b[1])
+            if not same_row:
+                continue
+            gap = max(a[0], b[0]) - min(a[2], b[2])  # negative when the boxes overlap
+            if gap < self.p.min_gap_ratio * min(a[2] - a[0], b[2] - b[0]):
+                return True
+        return False
 
     def _violation_due(self, s: ParkingSession, duration: float) -> bool:
         if not s.zone.is_restricted or s.violation_emitted:

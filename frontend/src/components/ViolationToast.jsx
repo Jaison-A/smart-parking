@@ -23,7 +23,9 @@ export default function ViolationToast({ violation, onClose }) {
       className="card border-signal shadow-lg animate-[fadeIn_.15s_ease-out]"
     >
       <div className="flex items-start justify-between gap-2 px-4 py-3 bg-signal text-paper">
-        <div className="text-sm font-medium">Illegal parking detected</div>
+        <div className="text-sm font-medium">
+          {violation.kind && violation.kind !== "no_parking" ? violation.detail : "Illegal parking detected"}
+        </div>
         <button onClick={onClose} aria-label="Dismiss" className="text-paper/80 hover:text-paper">
           ✕
         </button>

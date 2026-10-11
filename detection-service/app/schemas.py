@@ -3,11 +3,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.config import settings
+
 
 class ZoneIn(BaseModel):
     id: str
     name: str
-    type: Literal["parking", "no_parking"]
+    # "bay" = one numbered parking slot inside (or beside) a parking zone.
+    type: Literal["parking", "no_parking", "bay"]
     # Normalised coordinates (0..1) so a zone works at any video resolution.
     points: list[tuple[float, float]] = Field(min_length=3)
 
@@ -30,6 +33,14 @@ class JobParams(BaseModel):
     heartbeat_s: float = 5.0
     # Process every Nth frame (2 = twice as fast, negligible accuracy loss).
     frame_stride: int = 2
+    # Spacing: a vehicle that parks side by side with another closer than this
+    # (as a fraction of the narrower vehicle's width) breaks the rule. 0 = off.
+    min_gap_ratio: float = settings.min_gap_ratio
+    # Bays: share of the vehicle's footprint that must sit inside its bay.
+    bay_min_overlap: float = settings.bay_min_overlap
+    # A spacing / bay problem must persist this long before it counts (filters
+    # a car still straightening up, or a neighbour's track flickering).
+    rule_hold_s: float = settings.rule_hold_s
     plate_every_n_frames: int = 6
     plate_max_attempts: int = 25
 

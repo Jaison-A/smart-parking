@@ -10,7 +10,7 @@ const pointSchema = new mongoose.Schema(
 const zoneSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    type: { type: String, enum: ["parking", "no_parking"], required: true },
+    type: { type: String, enum: ["parking", "no_parking", "bay"], required: true },
     points: { type: [pointSchema], validate: (v) => v.length >= 3 },
     video: { type: mongoose.Schema.Types.ObjectId, ref: "Video", required: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

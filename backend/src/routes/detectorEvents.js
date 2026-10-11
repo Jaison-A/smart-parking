@@ -70,7 +70,7 @@ async function upsertSession(event, extra = {}) {
     { sessionKey: s.sessionId },
     {
       sessionKey: s.sessionId, video: event.videoId, trackId: s.trackId,
-      zoneName: s.zoneName, zoneType: s.zoneType, vehicleType: s.vehicleType,
+      zoneName: s.zoneName, zoneType: s.zoneType, bayName: s.bayName, vehicleType: s.vehicleType,
       plate: s.plate, plateConfidence: s.plateConfidence,
       startedAt: s.startedAt, endedAt: s.endedAt, durationSeconds: s.durationSeconds,
       ...(entrySnapshotPath && { entrySnapshotPath }),
@@ -96,7 +96,10 @@ async function handleSessionEnded(event) {
       violation.finalized = true;
       if (exitSnapshotPath) violation.exitSnapshotPath = exitSnapshotPath;
       await violation.save();
-      if (violation.fine) await finalizeFineAmount(violation.fine, session.durationSeconds, session.zoneName);
+      // Only the time-based no-parking fine is re-priced on exit; flat-rate ones stay as issued.
+      if (violation.fine && violation.kind === "no_parking") {
+        await finalizeFineAmount(violation.fine, session.durationSeconds, session.zoneName);
+      }
       notifyControllers("violation:updated", {
         videoId: event.videoId, violation: await violation.populate("fine"),
       });
@@ -110,6 +113,7 @@ async function handleViolation(event) {
 
   const violation = await Violation.create({
     session: session._id, video: event.videoId, zoneName: session.zoneName,
+    kind: event.session.violationKind || "no_parking", detail: event.session.violationDetail || null,
     vehicleType: session.vehicleType, plate: session.plate,
     startedAt: session.startedAt, durationSeconds: session.durationSeconds,
     snapshotPath: violationSnapshotPath || "",

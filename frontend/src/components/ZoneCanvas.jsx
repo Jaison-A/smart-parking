@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // Bright, saturated tones so zones stand out on asphalt, cars and shadows.
-const COLORS = { parking: "#22E05A", no_parking: "#FF3D1F" };
+const COLORS = { parking: "#22E05A", no_parking: "#FF3D1F", bay: "#1EA7FF" };
 
 /**
  * Click to drop points on the still frame; click near the first point (or
