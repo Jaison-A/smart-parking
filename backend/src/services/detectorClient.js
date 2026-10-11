@@ -28,13 +28,15 @@ async function call(path, options = {}) {
   return res.headers.get("content-type")?.includes("application/json") ? res.json() : res;
 }
 
-export function startDetectionJob({ jobId, videoId, videoPath, zones, params }) {
+export function startDetectionJob({ jobId, videoId, videoPath, isLive, zones, params }) {
   return call("/jobs", {
     method: "POST",
     body: JSON.stringify({
       job_id: jobId,
       video_id: videoId,
       video_path: videoPath,
+      // Explicit, not guessed from the URL - see schemas.py for why.
+      is_live: isLive,
       zones: zones.map((z) => ({
         id: z._id.toString(),
         name: z.name,

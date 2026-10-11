@@ -9,6 +9,7 @@ import { ParkingSession } from "../models/ParkingSession.js";
 import { Violation } from "../models/Violation.js";
 import { requireAuth } from "../middleware/auth.js";
 import { startDetectionJob, stopDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
+import { env } from "../config/env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VIDEO_DIR = path.resolve(__dirname, "../../uploads/videos");
@@ -31,10 +32,20 @@ const upload = multer({
 export const videosRouter = Router();
 videosRouter.use(requireAuth);
 
-// What to hand the detector: a file path for an upload, or the raw URL/index for a
-// live camera - the Python service's resolve_video_source() understands both.
+// What to hand the detector: a live camera uses its own URL/index as-is. An
+// uploaded file uses a local path when detector and backend share a disk (the
+// normal local-dev setup), or this backend's own public URL to the file when
+// they don't (PUBLIC_BASE_URL set - e.g. backend on Render, detector on
+// Hugging Face Spaces). Either way we tell the detector explicitly whether
+// this is a live source (see schemas.py is_live) rather than letting it guess
+// from the URL scheme, since an uploaded file served over http(s) would
+// otherwise look identical to a live camera URL.
 function videoSource(video) {
-  return video.sourceType === "stream" ? video.streamUrl : path.join(VIDEO_DIR, video.storedName);
+  if (video.sourceType === "stream") return { path: video.streamUrl, isLive: true };
+  const path_ = env.publicBaseUrl
+    ? `${env.publicBaseUrl.replace(/\/$/, "")}/uploads/videos/${video.storedName}`
+    : path.join(VIDEO_DIR, video.storedName);
+  return { path: path_, isLive: false };
 }
 
 const RTSP_OR_HTTP = /^(rtsps?|https?):\/\/.+/i;
@@ -93,7 +104,7 @@ videosRouter.get("/:id/frame", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
-    const jpeg = await fetchFirstFrame(videoSource(video));
+    const jpeg = await fetchFirstFrame(videoSource(video).path);
     res.set("Content-Type", "image/jpeg").send(jpeg);
   } catch (err) { next(err); }
 });
@@ -112,9 +123,10 @@ videosRouter.post("/:id/start", async (req, res, next) => {
     }
 
     const jobId = uuid();
+    const source = videoSource(video);
     await startDetectionJob({
       jobId, videoId: video._id.toString(),
-      videoPath: videoSource(video), zones,
+      videoPath: source.path, isLive: source.isLive, zones,
       params: req.body?.params,
     });
     video.status = "queued";
@@ -130,8 +142,24 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
-    if (video.jobId) await stopDetectionJob(video.jobId);
-    res.json({ stopping: true });
+
+    if (video.jobId) {
+      try {
+        await stopDetectionJob(video.jobId);
+      } catch (err) {
+        // The detector no longer knows this job (it restarted, or it already
+        // finished). The job is gone either way, so stopping is complete - don't
+        // surface that as an error, or the UI waits forever for a finish event.
+        if (err.status !== 404) throw err;
+      }
+    }
+
+    // Always settle the record here, so a stale "running" status can't outlive the job.
+    if (["queued", "running"].includes(video.status)) {
+      video.status = "stopped";
+      await video.save();
+    }
+    res.json({ stopping: true, video });
   } catch (err) { next(err); }
 });
 

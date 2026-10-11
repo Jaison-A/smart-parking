@@ -14,6 +14,12 @@ export const env = {
   detectorApiKey: required("DETECTOR_API_KEY", "change-me-detector-key"),
   detectorUrl: process.env.DETECTOR_URL || "http://localhost:8001",
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+  // Set only when backend and detection-service run on separate hosts (e.g.
+  // Render + Hugging Face Spaces) with no shared disk - this backend's own
+  // public URL, so uploaded videos can be handed to the detector as an http(s)
+  // link instead of a local file path. Leave unset for local dev; same-machine
+  // local paths keep working exactly as before.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
   fineBaseAmount: Number(process.env.FINE_BASE_AMOUNT || 500),
   finePerExtraMinute: Number(process.env.FINE_PER_EXTRA_MINUTE || 20),
 };

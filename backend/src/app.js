@@ -24,6 +24,10 @@ export function createApp() {
 
   // Snapshots served as static files so <img src> in the dashboard just works.
   app.use("/uploads/snapshots", express.static(path.resolve(__dirname, "../uploads/snapshots")));
+  // Uploaded videos, served the same way - only actually used when PUBLIC_BASE_URL
+  // is set (backend and detection-service on separate hosts with no shared disk;
+  // see services/detectorClient.js videoSource()). Harmless and unused locally.
+  app.use("/uploads/videos", express.static(path.resolve(__dirname, "../uploads/videos")));
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   app.use("/api/auth", authRouter);

@@ -6,7 +6,8 @@ import ViolationToast from "./ViolationToast.jsx";
 
 const nav = [
   { to: "/videos", label: "Videos" },
-  { to: "/violations", label: "Violations" },
+  { to: "/violations", label: "Violations", end: true },
+  { to: "/violations/today", label: "Today" },
   { to: "/fines", label: "Fines" },
 ];
 
@@ -94,9 +95,12 @@ function SidebarContent({ user, logout, navigate, connected, className }) {
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.end}
             className={({ isActive }) =>
-              `block px-5 py-2.5 text-sm border-l-2 ${
-                isActive ? "border-ink font-medium" : "border-transparent text-ink/60 hover:text-ink"
+              `block px-5 py-2.5 text-sm border-l-4 transition-colors ${
+                isActive
+                  ? "border-signal bg-ink text-paper font-medium"
+                  : "border-transparent text-ink/60 hover:bg-ink/5 hover:text-ink"
               }`
             }
           >
@@ -107,7 +111,7 @@ function SidebarContent({ user, logout, navigate, connected, className }) {
       <div className="px-5 py-4 border-t border-line text-xs">
         <div className="font-medium">{user?.name}</div>
         <div className="text-ink/50 mb-2">{user?.role}</div>
-        <button className="underline underline-offset-2" onClick={() => { logout(); navigate("/login"); }}>
+        <button className="border border-transparent px-2 py-1 -ml-2 transition-colors hover:border-ink hover:bg-ink/5" onClick={() => { logout(); navigate("/login"); }}>
           Sign out
         </button>
       </div>

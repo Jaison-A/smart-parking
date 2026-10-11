@@ -3,9 +3,12 @@ import { useParams, Link } from "react-router-dom";
 import { api, apiErrorMessage } from "../lib/api.js";
 import { useSocket } from "../context/SocketContext.jsx";
 import ZoneCanvas from "../components/ZoneCanvas.jsx";
+import ImageModal from "../components/ImageModal.jsx";
 
 const DETECTOR_STREAM = import.meta.env.VITE_DETECTOR_STREAM_URL;
 const ROWS_COLLAPSED = 6;
+const API_URL = import.meta.env.VITE_API_URL;
+const photoUrl = (p) => (p ? `${API_URL}/${p}` : null);
 
 // With `responseType: "blob"`, axios hands back the error body as a Blob too
 // (not parsed JSON) - apiErrorMessage() can't read that directly, so unwrap it
@@ -43,6 +46,7 @@ export default function VideoDetailPage() {
   // whether it's actually done.
   const [busy, setBusy] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
 
   const loadVideo = useCallback(() => {
     api.get(`/api/videos/${id}`).then((r) => setVideo(r.data.video));
@@ -124,7 +128,11 @@ export default function VideoDetailPage() {
   const stop = async () => {
     setBusy(true); setStopRequested(true); setError("");
     try {
-      await api.post(`/api/videos/${id}/stop`);
+      const { data } = await api.post(`/api/videos/${id}/stop`);
+      // The server has settled the record, so take its word for it now rather
+      // than waiting on a socket event that may never come.
+      if (data.video) setVideo(data.video);
+      setStopRequested(false);
     } catch (err) {
       setError(apiErrorMessage(err));
       setStopRequested(false); // the request itself failed - nothing to wait for
@@ -141,7 +149,7 @@ export default function VideoDetailPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <Link to="/videos" className="text-xs text-ink/50 underline underline-offset-2">← All videos</Link>
+      <Link to="/videos" className="inline-block -ml-2 px-2 py-1 text-xs text-ink/60 border border-transparent transition-colors hover:border-ink hover:bg-ink/5 hover:text-ink">← All videos</Link>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mt-2 mb-3">
         <div className="min-w-0">
           <h1 className="font-display text-xl md:text-2xl truncate">{video.originalName}</h1>
@@ -244,10 +252,13 @@ export default function VideoDetailPage() {
         )}
       </div>
 
-      <SessionTable title={`Active vehicles (${active.length})`} rows={active} />
+      <SessionTable title={`Active vehicles (${active.length})`} rows={active} onImageClick={setSelectedImage} />
       <div className="mt-8">
-        <SessionTable title={`History (${history.length})`} rows={history} />
+        <SessionTable title={`History (${history.length})`} rows={history} onImageClick={setSelectedImage} />
       </div>
+
+      {/* Image modal for viewing full-size snapshots */}
+      <ImageModal src={selectedImage} onClose={() => setSelectedImage(null)} />
     </div>
   );
 }
@@ -286,7 +297,7 @@ function ProgressBar({ indeterminate, value = 0, tone = "ink" }) {
 
 // Shows a manageable first slice of rows with a "Show all" toggle, rather than
 // either an unbounded table or a nested scroll area fighting the page scroll.
-function SessionTable({ title, rows }) {
+function SessionTable({ title, rows, onImageClick }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? rows : rows.slice(0, ROWS_COLLAPSED);
 
@@ -306,6 +317,7 @@ function SessionTable({ title, rows }) {
                   <th className="text-left font-normal px-4 py-2">Zone</th>
                   <th className="text-left font-normal px-4 py-2">Duration</th>
                   <th className="text-left font-normal px-4 py-2">Status</th>
+                  <th className="text-left font-normal px-4 py-2">Photos</th>
                 </tr>
               </thead>
               <tbody>
@@ -323,6 +335,18 @@ function SessionTable({ title, rows }) {
                       ) : (
                         <span className="text-ok">Parked</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-1">
+                        {[["Entry", s.entrySnapshotPath], ["Exit", s.exitSnapshotPath]].map(([label, p]) =>
+                          p ? (
+                            <img key={label} src={photoUrl(p)} alt={`${label} photo`} title={`${label} - click to enlarge`}
+                              onClick={() => onImageClick(photoUrl(p))}
+                              className="w-12 h-8 object-cover border border-line cursor-zoom-in hover:opacity-80" />
+                          ) : null
+                        )}
+                        {!s.entrySnapshotPath && !s.exitSnapshotPath && <span className="text-ink/30">—</span>}
+                      </div>
                     </td>
                   </tr>
                 ))}

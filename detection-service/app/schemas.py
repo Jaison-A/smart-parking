@@ -38,5 +38,12 @@ class JobRequest(BaseModel):
     job_id: str
     video_id: str
     video_path: str
+    # Explicit, not sniffed from the URL: an uploaded file can itself be served
+    # over http(s) when deployed (backend and detector on separate hosts, no
+    # shared disk), which looks identical to a live camera URL otherwise. The
+    # caller (Node) knows which one it actually is - let it say so, rather than
+    # the detector guessing from the scheme and treating a finished upload as a
+    # dropped camera feed that needs reconnecting forever.
+    is_live: bool | None = None
     zones: list[ZoneIn]
     params: JobParams = JobParams()

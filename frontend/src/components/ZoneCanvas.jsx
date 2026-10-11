@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-const COLORS = { parking: "#3E5C3A", no_parking: "#C8481E" };
+// Bright, saturated tones so zones stand out on asphalt, cars and shadows.
+const COLORS = { parking: "#22E05A", no_parking: "#FF3D1F" };
 
 /**
  * Click to drop points on the still frame; click near the first point (or
@@ -40,14 +41,21 @@ export default function ZoneCanvas({ frameUrl, zones, draftType, onComplete }) {
   }
 
   function drawPolygon(ctx, pts, color, closed, label) {
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color + "33";
-    ctx.lineWidth = 2;
     ctx.beginPath();
     pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
     if (closed) ctx.closePath();
+    // Dark under-stroke first, then the bright line on top, so the edge reads on any background.
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 6;
     ctx.stroke();
-    if (closed) ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+    if (closed) {
+      ctx.fillStyle = color + "2E"; // ~18% fill - bright outline, light tint so cars stay visible
+      ctx.fill();
+    }
     for (const [x, y] of pts) {
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -55,8 +63,11 @@ export default function ZoneCanvas({ frameUrl, zones, draftType, onComplete }) {
       ctx.fill();
     }
     if (label) {
+      ctx.font = "bold 14px Inter, sans-serif";
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(0,0,0,0.85)";
+      ctx.strokeText(label, pts[0][0] + 6, pts[0][1] - 6);
       ctx.fillStyle = color;
-      ctx.font = "13px Inter, sans-serif";
       ctx.fillText(label, pts[0][0] + 6, pts[0][1] - 6);
     }
   }

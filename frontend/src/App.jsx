@@ -31,6 +31,7 @@ export default function App() {
                   <Route path="videos" element={<VideosPage />} />
                   <Route path="videos/:id" element={<VideoDetailPage />} />
                   <Route path="violations" element={<ViolationsPage />} />
+                  <Route path="violations/today" element={<ViolationsPage mode="today" />} />
                   <Route path="fines" element={<FinesPage />} />
                   <Route path="*" element={<Navigate to="/videos" replace />} />
                 </Routes>

@@ -38,7 +38,7 @@ class DetectionJob:
         """Process the whole video. `on_frame(annotated)` may return False to abort (CLI preview)."""
         req, p = self.req, self.req.params
         self.status = "running"
-        is_live = is_live_source(req.video_path)
+        is_live = req.is_live if req.is_live is not None else is_live_source(req.video_path)
         # Tell the backend "I'm alive and starting" straight away - opening the video
         # and loading the model can take anywhere from one to thirty seconds (first
         # run downloads weights), and without this the dashboard sees nothing at all

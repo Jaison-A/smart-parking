@@ -7,7 +7,7 @@ import numpy as np
 from app.schemas import ZoneIn
 
 # BGR colours used when drawing.
-COLOR_PARKING = (110, 124, 14)
+COLOR_PARKING = (0, 255, 80)      # bright green (BGR) - was a dark olive that vanished into asphalt
 COLOR_RESTRICTED = (57, 40, 198)
 
 
@@ -51,9 +51,14 @@ def draw_zones(frame: np.ndarray, zones: list[Zone]) -> None:
     overlay = frame.copy()
     for z in zones:
         cv2.fillPoly(overlay, [z.polygon], z.color)
-    cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
+    # 35% fill (was 18%) so the zone reads clearly on busy car-park footage.
+    cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
     for z in zones:
-        cv2.polylines(frame, [z.polygon], True, z.color, 2)
+        # Dark under-stroke first, then the bright coloured line on top: the
+        # two-tone edge stays visible on both dark asphalt and bright cars.
+        cv2.polylines(frame, [z.polygon], True, (0, 0, 0), 6, cv2.LINE_AA)
+        cv2.polylines(frame, [z.polygon], True, z.color, 4, cv2.LINE_AA)
         x, y = z.polygon[0]
-        cv2.putText(frame, z.name, (int(x), max(int(y) - 8, 14)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, z.color, 2, cv2.LINE_AA)
+        label_pos = (int(x), max(int(y) - 10, 16))
+        cv2.putText(frame, z.name, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, z.name, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, z.color, 2, cv2.LINE_AA)
