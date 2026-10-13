@@ -48,6 +48,11 @@ export function startDetectionJob({ jobId, videoId, videoPath, isLive, zones, pa
   });
 }
 
+// Does the detector still know this job, and how is it doing? 404 = it has no record of it.
+export function getJobStatus(jobId) {
+  return call(`/jobs/${jobId}`);
+}
+
 export function stopDetectionJob(jobId) {
   return call(`/jobs/${jobId}/stop`, { method: "POST" });
 }

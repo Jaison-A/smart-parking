@@ -33,6 +33,10 @@ class PlateVote:
     def exhausted(self) -> bool:
         return self.attempts >= self.max_attempts
 
+    def give_up(self) -> None:
+        """Stop trying for this vehicle (e.g. it is too small for a plate to be legible)."""
+        self.attempts = self.max_attempts
+
     def best(self) -> tuple[str, float] | None:
         if not self._score:
             return None
@@ -63,6 +67,11 @@ class PlateReader:
             self._plate_model = YOLO(plate_model)
 
     # ------------------------------------------------------------------ public
+    @staticmethod
+    def can_read(bbox) -> bool:
+        """False when the vehicle is too small in the picture for a plate to be legible."""
+        return (bbox[2] - bbox[0]) >= max(40, settings.plate_min_vehicle_px)
+
     def read(self, frame, bbox) -> tuple[str, float] | None:
         import cv2
 

@@ -10,6 +10,7 @@ import { Violation } from "../models/Violation.js";
 import { requireAuth } from "../middleware/auth.js";
 import { startDetectionJob, stopDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
 import { env } from "../config/env.js";
+import { reconcileVideo, settleOrphanedJob } from "../services/jobReconciler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VIDEO_DIR = path.resolve(__dirname, "../../uploads/videos");
@@ -87,7 +88,10 @@ videosRouter.post("/live", async (req, res, next) => {
 
 videosRouter.get("/", async (req, res, next) => {
   try {
-    res.json({ videos: await Video.find().sort({ createdAt: -1 }) });
+    const videos = await Video.find().sort({ createdAt: -1 });
+    // Only in-flight videos hit the detector, so this is usually zero or one call.
+    await Promise.all(videos.map((v) => reconcileVideo(v)));
+    res.json({ videos });
   } catch (err) { next(err); }
 });
 
@@ -95,6 +99,7 @@ videosRouter.get("/:id", async (req, res, next) => {
   try {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
+    await reconcileVideo(video); // heal a "running" record whose job no longer exists
     res.json({ video });
   } catch (err) { next(err); }
 });
@@ -143,6 +148,7 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
 
+    let jobGone = false;
     if (video.jobId) {
       try {
         await stopDetectionJob(video.jobId);
@@ -151,11 +157,15 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
         // finished). The job is gone either way, so stopping is complete - don't
         // surface that as an error, or the UI waits forever for a finish event.
         if (err.status !== 404) throw err;
+        jobGone = true;
       }
     }
 
-    // Always settle the record here, so a stale "running" status can't outlive the job.
-    if (["queued", "running"].includes(video.status)) {
+    if (jobGone) {
+      // Nobody is left to close this job's open sessions, so do it here.
+      await settleOrphanedJob(video, { status: "stopped" });
+    } else if (["queued", "running"].includes(video.status)) {
+      // Always settle the record here, so a stale "running" status can't outlive the job.
       video.status = "stopped";
       await video.save();
     }

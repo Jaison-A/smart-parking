@@ -61,3 +61,15 @@ def test_fixes_common_letter_digit_confusions():
     ocr = FakeOCR([fragment("TNZ5AB1Z34")])      # Z for 7... and Z for 2 in the digit blocks
     plate = reader(ocr).read(FRAME, BIG)
     assert plate is not None and plate[0].startswith("TN") and plate[0][-4:].isdigit()
+
+
+def test_can_read_only_accepts_big_enough_vehicles():
+    assert PlateReader.can_read(BIG) and not PlateReader.can_read(SMALL)
+
+
+def test_giving_up_locks_the_vote_so_reading_stops():
+    from app.plates import PlateVote
+    votes = PlateVote(max_attempts=25)
+    assert not votes.locked
+    votes.give_up()
+    assert votes.locked and votes.best() is None

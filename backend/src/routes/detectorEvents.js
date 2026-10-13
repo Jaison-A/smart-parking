@@ -36,7 +36,7 @@ detectorEventsRouter.post("/", async (req, res, next) => {
         break;
       case "job_progress":
         await Video.findByIdAndUpdate(event.videoId, { progress: event.progress, status: "running" });
-        notifyControllers("job:progress", { videoId: event.videoId, progress: event.progress });
+        notifyControllers("job:progress", { videoId: event.videoId, progress: event.progress, vehicles: event.vehicles });
         break;
       case "job_finished":
         await Video.findByIdAndUpdate(event.videoId, { status: event.status, progress: 100 });

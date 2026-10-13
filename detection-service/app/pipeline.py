@@ -25,6 +25,7 @@ class DetectionJob:
         self.client = client
         self.status = "queued"  # queued | running | completed | failed | stopped
         self.progress = 0.0
+        self.vehicle_count = 0  # vehicles detected in the latest processed frame
         self.error: str | None = None
         self.latest_jpeg: bytes | None = None  # for the live MJPEG stream
         self._stop = False
@@ -60,6 +61,7 @@ class DetectionJob:
             log.info("job %s started: %dx%d @ %.1ffps, %d zones", req.job_id, width, height, fps, len(zones))
 
             frame_no, t, last_progress = 0, 0.0, 0.0
+            last_beat = time.monotonic()  # wall clock: lets the dashboard prove the job is alive
             while not self._stop:
                 ok, frame = cap.read()
                 if not ok:
@@ -80,6 +82,7 @@ class DetectionJob:
                     self._read_plates(manager, reader, frame, frame_no)
                 events = manager.update(t, detections)
 
+                self.vehicle_count = len(detections)
                 annotated = self._annotate(frame, zones, manager, t)
                 for ev in events:
                     self._emit(ev, t, frame)
@@ -89,11 +92,14 @@ class DetectionJob:
                 # "alive"), so the UI can move from "starting" to a real progress state.
                 # After that, a tick every 2 video-seconds - for a live camera there's
                 # no `total`, so this is the only progress signal it ever gets.
-                if frame_no == 1 or t - last_progress >= 2:
-                    last_progress = t
+                # Also tick at least every 3 real seconds: on a slow CPU, two seconds of
+                # *video* can take a minute of real time, which looks exactly like a hang.
+                if frame_no == 1 or t - last_progress >= 2 or time.monotonic() - last_beat >= 3:
+                    last_progress, last_beat = t, time.monotonic()
                     self.progress = min(99.0, 100.0 * frame_no / total) if total else 0.0
                     self.client.send({"type": "job_progress", "jobId": req.job_id,
-                                      "videoId": req.video_id, "progress": round(self.progress, 1)})
+                                      "videoId": req.video_id, "progress": round(self.progress, 1),
+                                      "vehicles": self.vehicle_count})
                 if on_frame and on_frame(annotated) is False:
                     self._stop = True
 
@@ -143,6 +149,9 @@ class DetectionJob:
         for st in manager.plate_candidates():
             if self._stop:
                 return  # Stop was clicked mid-frame - don't start another OCR read.
+            if not reader.can_read(st.bbox):
+                st.votes.give_up()  # too small to ever read: stop wasting CPU, say so on screen
+                continue
             # Stagger tracks so we never OCR every vehicle on the same frame.
             if (frame_no + st.track_id) % p.plate_every_n_frames:
                 continue
@@ -219,13 +228,18 @@ class DetectionJob:
                 color = TEAL if not s.zone.is_restricted else AMBER
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
             secs = int(s.duration(t))
-            label = f"{s.plate or 'reading plate'}  {secs // 60:02d}:{secs % 60:02d}"
+            plate_text = s.plate or ("plate unreadable" if st.votes.locked else "reading plate")
+            label = f"{plate_text}  {secs // 60:02d}:{secs % 60:02d}"
             if s.bay_name:
                 label += f"  [{s.bay_name}]"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(img, (x1, y1 - th - 10), (x1 + tw + 8, y1), color, -1)
             cv2.putText(img, label, (x1 + 4, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (255, 255, 255), 2, cv2.LINE_AA)
+        # Corner banner so the effect of DETECTION_MODE is visible on the feed itself.
+        banner = f"Vehicles detected: {getattr(self, 'vehicle_count', 0)}"
+        cv2.rectangle(img, (0, 0), (8 + 11 * len(banner), 26), (0, 0, 0), -1)
+        cv2.putText(img, banner, (6, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         return img
 
     def _publish_frame(self, img) -> None:

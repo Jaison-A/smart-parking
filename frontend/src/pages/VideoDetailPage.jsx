@@ -5,7 +5,12 @@ import { useSocket } from "../context/SocketContext.jsx";
 import ZoneCanvas from "../components/ZoneCanvas.jsx";
 import ImageModal from "../components/ImageModal.jsx";
 
-const DETECTOR_STREAM = import.meta.env.VITE_DETECTOR_STREAM_URL;
+// If VITE_DETECTOR_STREAM_URL is missing from frontend/.env the URL used to become
+// "undefined/jobs/..." and the feed silently failed to load. Fall back to the
+// detector's default port on whatever host the dashboard itself is served from.
+const DETECTOR_STREAM = (import.meta.env.VITE_DETECTOR_STREAM_URL || `http://${window.location.hostname}:8001`).replace(/\/$/, "");
+// Progress ticks arrive at least every ~3s while a job runs; this long without one is suspicious.
+const STALE_AFTER_S = 30;
 const ROWS_COLLAPSED = 6;
 const API_URL = import.meta.env.VITE_API_URL;
 const photoUrl = (p) => (p ? `${API_URL}/${p}` : null);
@@ -46,6 +51,11 @@ export default function VideoDetailPage() {
   // whether it's actually done.
   const [busy, setBusy] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
+  // When we last heard from the running job (any progress / session event), so the
+  // page can say whether detection is genuinely alive instead of leaving you guessing.
+  const [lastUpdateAt, setLastUpdateAt] = useState(0);
+  const [vehicleCount, setVehicleCount] = useState(null); // vehicles in the latest processed frame
+  const [now, setNow] = useState(Date.now());
   const [selectedImage, setSelectedImage] = useState(null);
 
   const loadVideo = useCallback(() => {
@@ -69,7 +79,12 @@ export default function VideoDetailPage() {
   // Live updates while a job is running - status, progress and every session change.
   useEffect(() => {
     if (!socket) return;
-    const onProgress = (p) => p.videoId === id && setVideo((v) => v && { ...v, status: "running", progress: p.progress });
+    const onProgress = (p) => {
+      if (p.videoId !== id) return;
+      setLastUpdateAt(Date.now());
+      if (p.vehicles != null) setVehicleCount(p.vehicles);
+      setVideo((v) => v && { ...v, status: "running", progress: p.progress });
+    };
     const onFinished = (p) => {
       if (p.videoId !== id) return;
       setVideo((v) => v && { ...v, status: p.status, progress: 100 });
@@ -82,6 +97,7 @@ export default function VideoDetailPage() {
     };
     const onSession = (p) => {
       if (p.videoId !== id) return;
+      setLastUpdateAt(Date.now());
       setSessions((prev) => {
         const i = prev.findIndex((s) => s.sessionKey === p.session.sessionKey);
         if (i === -1) return [p.session, ...prev];
@@ -145,6 +161,29 @@ export default function VideoDetailPage() {
   const active = useMemo(() => sessions.filter((s) => s.status === "active"), [sessions]);
   const history = useMemo(() => sessions.filter((s) => s.status !== "active"), [sessions]);
 
+  // Coming back to a running job: the record's updatedAt is when the detector last
+  // reported progress, so the "updated Ns ago" readout is right from the first render.
+  useEffect(() => {
+    if (video?.updatedAt) setLastUpdateAt((cur) => Math.max(cur, new Date(video.updatedAt).getTime()));
+  }, [video?.updatedAt]);
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isRunning]);
+
+  // Gone quiet for too long? Ask the server to re-check - it asks the detector whether
+  // the job still exists and corrects the record if the job was lost (e.g. the
+  // detector restarted). So a dead job turns into a clear "failed" instead of sitting
+  // on "running" forever.
+  const isStale = isRunning && lastUpdateAt > 0 && (now - lastUpdateAt) / 1000 > STALE_AFTER_S;
+  useEffect(() => {
+    if (!isStale) return;
+    loadVideo();
+    const timer = setInterval(loadVideo, 10000);
+    return () => clearInterval(timer);
+  }, [isStale, loadVideo]);
+
   if (!video) return <div className="p-4 md:p-8 text-sm text-ink/50">Loading…</div>;
 
   return (
@@ -155,6 +194,12 @@ export default function VideoDetailPage() {
           <h1 className="font-display text-xl md:text-2xl truncate">{video.originalName}</h1>
           <p className="text-sm text-ink/60 mt-1">
             Status: <span className="font-medium">{statusLabel(video, stopRequested)}</span>
+            {video.status === "running" && lastUpdateAt > 0 && (
+              <Liveness ageS={Math.max(0, Math.round((now - lastUpdateAt) / 1000))} />
+            )}
+            {video.status === "running" && vehicleCount != null && (
+              <span className="text-ink/50"> · {vehicleCount} vehicle{vehicleCount === 1 ? "" : "s"} in view</span>
+            )}
             {video.error && <span className="text-signal"> · {video.error}</span>}
           </p>
         </div>
@@ -194,8 +239,7 @@ export default function VideoDetailPage() {
         {video.status === "running" ? (
           <>
             <h2 className="text-sm font-medium mb-2">Live feed</h2>
-            <img src={`${DETECTOR_STREAM}/jobs/${video.jobId}/stream`} alt="Live annotated feed"
-              className="w-full border border-line" />
+            <LiveFeed src={`${DETECTOR_STREAM}/jobs/${video.jobId}/stream`} />
           </>
         ) : video.status === "queued" ? (
           <>
@@ -254,6 +298,8 @@ export default function VideoDetailPage() {
         )}
       </div>
 
+      <BayBoard bays={zones.filter((z) => z.type === "bay")} active={active} />
+
       <SessionTable title={`Active vehicles (${active.length})`} rows={active} onImageClick={setSelectedImage} />
       <div className="mt-8">
         <SessionTable title={`History (${history.length})`} rows={history} onImageClick={setSelectedImage} />
@@ -262,6 +308,80 @@ export default function VideoDetailPage() {
       {/* Image modal for viewing full-size snapshots */}
       <ImageModal src={selectedImage} onClose={() => setSelectedImage(null)} />
     </div>
+  );
+}
+
+// Which bay holds which vehicle right now. Only shown once bays have been drawn.
+function BayBoard({ bays, active }) {
+  if (bays.length === 0) return null;
+  const holder = (name) => active.find((s) => s.bayName === name);
+  const taken = bays.filter((b) => holder(b.name)).length;
+  return (
+    <div className="mb-8">
+      <h2 className="text-sm font-medium mb-2">
+        Bays ({taken} of {bays.length} occupied)
+      </h2>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        {bays.map((b) => {
+          const s = holder(b.name);
+          return (
+            <div key={b._id}
+              className={`border px-3 py-2 text-sm ${s ? (s.isViolation ? "border-signal" : "border-[#1EA7FF] bg-[#1EA7FF]/10") : "border-line bg-white"}`}>
+              <div className="font-medium">{b.name}</div>
+              <div className={`text-xs mt-0.5 ${s ? (s.isViolation ? "text-signal" : "text-ink/70") : "text-ink/40"}`}>
+                {s ? `${s.plate || "Plate not read"} · ${s.vehicleType}${s.isViolation ? " · rule broken" : ""}` : "Free"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function fmtAge(s) {
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+// "updated 3s ago" while healthy; turns amber and spells out what to do when it goes quiet.
+function Liveness({ ageS }) {
+  if (ageS <= STALE_AFTER_S) return <span className="text-ink/50"> · updated {fmtAge(ageS)} ago</span>;
+  return (
+    <span className="text-amber">
+      {" "}· no update for {fmtAge(ageS)} - the detector may be stopped. If this keeps growing,
+      click Stop detection, then start again.
+    </span>
+  );
+}
+
+// The MJPEG stream. A plain <img> just shows a broken-image icon if the request fails;
+// this says so, shows the URL it tried, and keeps retrying (e.g. the detector restarted).
+function LiveFeed({ src }) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!failed) return;
+    const timer = setTimeout(() => { setFailed(false); setAttempt((a) => a + 1); }, 4000);
+    return () => clearTimeout(timer);
+  }, [failed]);
+
+  if (failed) {
+    return (
+      <div className="card aspect-video flex flex-col items-center justify-center gap-2 text-sm text-ink/60 px-6 text-center">
+        <Spinner size={18} />
+        <span>Can't load the live feed - retrying…</span>
+        <code className="text-xs text-ink/40 break-all">{src}</code>
+        <span className="text-xs">Check the detection service is running (port 8001).</span>
+        <button className="btn-outline text-xs" onClick={() => { setFailed(false); setAttempt((a) => a + 1); }}>
+          Retry now
+        </button>
+      </div>
+    );
+  }
+  return (
+    <img key={attempt} src={`${src}?r=${attempt}`} alt="Live annotated feed"
+      onError={() => setFailed(true)} className="w-full border border-line" />
   );
 }
 
