@@ -9,6 +9,7 @@ const nav = [
   { to: "/violations", label: "Violations", end: true },
   { to: "/violations/today", label: "Today" },
   { to: "/fines", label: "Fines" },
+  { to: "/settings", label: "Settings", adminOnly: true },
 ];
 
 export default function Layout({ children }) {
@@ -91,7 +92,7 @@ function SidebarContent({ user, logout, navigate, connected, className }) {
         </div>
       </div>
       <nav className="flex-1 py-4">
-        {nav.map((item) => (
+        {nav.filter((item) => !item.adminOnly || user?.role === "admin").map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

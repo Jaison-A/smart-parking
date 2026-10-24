@@ -7,6 +7,7 @@ import VideosPage from "./pages/VideosPage.jsx";
 import VideoDetailPage from "./pages/VideoDetailPage.jsx";
 import ViolationsPage from "./pages/ViolationsPage.jsx";
 import FinesPage from "./pages/FinesPage.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
 
 function Protected({ children }) {
   const { token, loading } = useAuth();
@@ -33,6 +34,7 @@ export default function App() {
                   <Route path="violations" element={<ViolationsPage />} />
                   <Route path="violations/today" element={<ViolationsPage mode="today" />} />
                   <Route path="fines" element={<FinesPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
                   <Route path="*" element={<Navigate to="/videos" replace />} />
                 </Routes>
               </Layout>

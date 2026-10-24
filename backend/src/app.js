@@ -10,6 +10,7 @@ import { zonesRouter } from "./routes/zones.js";
 import { videosRouter } from "./routes/videos.js";
 import { violationsRouter } from "./routes/violations.js";
 import { finesRouter } from "./routes/fines.js";
+import { settingsRouter } from "./routes/settings.js";
 import { detectorEventsRouter } from "./routes/detectorEvents.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 
@@ -35,6 +36,7 @@ export function createApp() {
   app.use("/api/videos", videosRouter);
   app.use("/api/violations", violationsRouter);
   app.use("/api/fines", finesRouter);
+  app.use("/api/settings", settingsRouter);
   app.use("/api/detector/events", detectorEventsRouter);
 
   app.use(notFound);

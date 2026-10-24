@@ -6,7 +6,7 @@ const videoSchema = new mongoose.Schema(
     // "upload": storedName is a filename on disk, uploads/videos/.
     // "stream": streamUrl is a live source - an rtsp(s)://, http(s):// camera URL,
     // or a bare webcam index ("0", "1", ...) - read directly, nothing is stored.
-    sourceType: { type: String, enum: ["upload", "stream"], default: "upload" },
+    sourceType: { type: String, enum: ["upload", "stream", "image"], default: "upload" },
     storedName: String,
     streamUrl: String,
     sizeBytes: Number,

@@ -14,6 +14,7 @@ export default function VideosPage() {
   const [showCameraForm, setShowCameraForm] = useState(false);
   const [camera, setCamera] = useState({ name: "", streamUrl: "" });
   const fileRef = useRef(null);
+  const imageRef = useRef(null);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -25,6 +26,25 @@ export default function VideosPage() {
     const id = setInterval(load, 4000); // picks up progress/status without sockets on this page
     return () => clearInterval(id);
   }, [load]);
+
+  // TEMPORARY test tool: upload a picture to check detection + plate reading.
+  const onUploadImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const { data } = await api.post("/api/videos/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      navigate(`/videos/${data.video._id}`);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setUploading(false);
+      if (imageRef.current) imageRef.current.value = "";
+    }
+  };
 
   const onUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -68,6 +88,10 @@ export default function VideosPage() {
           <button className="btn-outline flex-1 sm:flex-none" onClick={() => setShowCameraForm((v) => !v)}>
             Connect camera
           </button>
+          <label className="btn-outline cursor-pointer flex-1 sm:flex-none text-center" title="Temporary: run one picture through the detector until you stop it">
+            Test image
+            <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={onUploadImage} disabled={uploading} />
+          </label>
           <label className="btn-primary cursor-pointer flex-1 sm:flex-none text-center">
             {uploading ? "Uploading…" : "Upload video"}
             <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onUpload} disabled={uploading} />
@@ -113,6 +137,9 @@ export default function VideosPage() {
                   {v.sourceType === "stream" && (
                     <span className="ml-2 text-xs border border-ink/30 px-1.5 py-0.5">LIVE</span>
                   )}
+                  {v.sourceType === "image" && (
+                    <span className="ml-2 text-xs border border-amber text-amber px-1.5 py-0.5">TEST IMAGE</span>
+                  )}
                 </div>
                 <div className="text-xs text-ink/50 mt-0.5 truncate">
                   {v.sourceType === "stream"
@@ -121,7 +148,7 @@ export default function VideosPage() {
                 </div>
               </div>
               <div className={`text-xs font-medium shrink-0 ${STATUS_STYLE[v.status] || ""}`}>
-                {v.status}{v.status === "running" ? ` · ${v.progress}%` : ""}
+                {v.status}{v.status === "running" && v.sourceType === "upload" ? ` · ${v.progress}%` : ""}
               </div>
             </button>
           ))}

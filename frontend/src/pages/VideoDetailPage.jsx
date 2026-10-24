@@ -223,13 +223,21 @@ export default function VideoDetailPage() {
       {(isRunning || stopRequested) && (
         <ProgressBar
           tone={stopRequested ? "amber" : "ink"}
-          indeterminate={stopRequested || video.status === "queued" || video.sourceType === "stream"}
+          indeterminate={stopRequested || video.status === "queued" || video.sourceType !== "upload"}
           value={video.progress}
         />
       )}
       <div className="mb-6" />
 
       {error && <div className="text-sm text-signal mb-4">{error}</div>}
+
+      {video.sourceType === "image" && (
+        <div className="border border-amber text-sm px-4 py-3 mb-6">
+          <span className="font-medium text-amber">Test image.</span> This one picture is analysed
+          over and over until you click Stop detection. Draw a zone over the vehicles first -
+          plates are only read for vehicles parked inside a zone.
+        </div>
+      )}
 
       {/* One panel, not two: while detection is running the zone editor is locked
           and irrelevant, so the feed gets the full width. While idle, nobody
@@ -388,7 +396,7 @@ function LiveFeed({ src }) {
 function statusLabel(video, stopRequested) {
   if (stopRequested) return "stopping…";
   if (video.status === "queued") return "starting…";
-  if (video.status === "running") return video.sourceType === "stream" ? "running · live" : `running · ${video.progress}%`;
+  if (video.status === "running") return video.sourceType === "upload" ? `running · ${video.progress}%` : video.sourceType === "image" ? "running · test image" : "running · live";
   return video.status;
 }
 

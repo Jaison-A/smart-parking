@@ -30,6 +30,20 @@ const upload = multer({
   },
 });
 
+// TEMPORARY test tool: upload a single picture and run it through the detector over
+// and over until you click Stop, to check vehicle detection and plate reading.
+const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".bmp", ".webp"]);
+const uploadImage = multer({
+  storage: upload.storage, // same folder as videos, so the detector may read it
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!IMAGE_EXT.has(path.extname(file.originalname).toLowerCase())) {
+      return cb(Object.assign(new Error("Unsupported image format (use jpg, png, bmp or webp)"), { status: 400 }));
+    }
+    cb(null, true);
+  },
+});
+
 export const videosRouter = Router();
 videosRouter.use(requireAuth);
 
@@ -46,7 +60,9 @@ function videoSource(video) {
   const path_ = env.publicBaseUrl
     ? `${env.publicBaseUrl.replace(/\/$/, "")}/uploads/videos/${video.storedName}`
     : path.join(VIDEO_DIR, video.storedName);
-  return { path: path_, isLive: false };
+  // A test image never "ends" - the detector keeps re-reading it until Stop - so it
+  // is handled as a live source, not a file with a length.
+  return { path: path_, isLive: video.sourceType === "image" };
 }
 
 const RTSP_OR_HTTP = /^(rtsps?|https?):\/\/.+/i;
@@ -58,6 +74,21 @@ videosRouter.post("/", upload.single("video"), async (req, res, next) => {
     const video = await Video.create({
       originalName: req.file.originalname,
       sourceType: "upload",
+      storedName: req.file.filename,
+      sizeBytes: req.file.size,
+      uploadedBy: req.user.sub,
+    });
+    res.status(201).json({ video });
+  } catch (err) { next(err); }
+});
+
+// TEMPORARY test tool - see uploadImage above.
+videosRouter.post("/image", uploadImage.single("image"), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No image was uploaded (field name: image)" });
+    const video = await Video.create({
+      originalName: req.file.originalname,
+      sourceType: "image",
       storedName: req.file.filename,
       sizeBytes: req.file.size,
       uploadedBy: req.user.sub,
