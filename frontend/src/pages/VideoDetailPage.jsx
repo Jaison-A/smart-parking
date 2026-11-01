@@ -57,6 +57,7 @@ export default function VideoDetailPage() {
   const [vehicleCount, setVehicleCount] = useState(null); // vehicles in the latest processed frame
   const [now, setNow] = useState(Date.now());
   const [selectedImage, setSelectedImage] = useState(null);
+  const [editingZoneId, setEditingZoneId] = useState(null); // zone whose spacing settings are open
 
   const loadVideo = useCallback(() => {
     api.get(`/api/videos/${id}`).then((r) => setVideo(r.data.video));
@@ -107,11 +108,16 @@ export default function VideoDetailPage() {
       });
     };
     socket.on("job:progress", onProgress);
+    // The detector restarted and the backend resumed the job under a new id: reload so the
+    // live feed points at the new job.
+    const onResumed = (p) => { if (p.videoId === id) loadVideo(); };
+    socket.on("job:resumed", onResumed);
     socket.on("job:finished", onFinished);
     socket.on("job:failed", onFailed);
     socket.on("session:update", onSession);
     return () => {
       socket.off("job:progress", onProgress);
+      socket.off("job:resumed", onResumed);
       socket.off("job:finished", onFinished);
       socket.off("job:failed", onFailed);
       socket.off("session:update", onSession);
@@ -191,7 +197,10 @@ export default function VideoDetailPage() {
       <Link to="/videos" className="inline-block -ml-2 px-2 py-1 text-xs text-ink/60 border border-transparent transition-colors hover:border-ink hover:bg-ink/5 hover:text-ink">← All videos</Link>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mt-2 mb-3">
         <div className="min-w-0">
-          <h1 className="font-display text-xl md:text-2xl truncate">{video.originalName}</h1>
+          <h1 className="font-display text-xl md:text-2xl truncate">
+            {video.originalName}
+            {video.isTest && <span className="ml-3 align-middle text-xs border border-amber text-amber px-1.5 py-0.5 font-sans">TEST</span>}
+          </h1>
           <p className="text-sm text-ink/60 mt-1">
             Status: <span className="font-medium">{statusLabel(video, stopRequested)}</span>
             {video.status === "running" && lastUpdateAt > 0 && (
@@ -290,19 +299,37 @@ export default function VideoDetailPage() {
         {zones.length === 0 ? (
           <p className="text-sm text-ink/50">No zones yet — draw at least one before starting detection.</p>
         ) : (
+          <>
           <div className="flex flex-wrap gap-2">
             {zones.map((z) => (
               <span key={z._id}
                 className={`flex items-center gap-2 border px-3 py-1 text-xs ${
                   z.type === "no_parking" ? "border-signal text-signal"
                     : z.type === "bay" ? "border-[#1EA7FF] text-[#0A7CC4]" : "border-ok text-ok"}`}>
-                {z.name}
+                {z.type === "parking" ? (
+                  <button onClick={() => setEditingZoneId(editingZoneId === z._id ? null : z._id)}
+                    className="hover:underline underline-offset-2" title="Spacing settings for this zone">{z.name}</button>
+                ) : z.name}
+                {z.type === "parking" && z.ignoreSpacing && <span className="text-ink/50">· spacing off</span>}
+                {z.type === "parking" && !z.ignoreSpacing && z.minGapRatio != null && (
+                  <span className="text-ink/50">· gap {Math.round(z.minGapRatio * 100)}%</span>
+                )}
                 {!isRunning && (
                   <button onClick={() => deleteZone(z._id)} aria-label={`Delete ${z.name}`}>✕</button>
                 )}
               </span>
             ))}
           </div>
+          {zones.find((z) => z._id === editingZoneId) && (
+            <ZoneSpacingEditor
+              key={editingZoneId}
+              zone={zones.find((z) => z._id === editingZoneId)}
+              disabled={isRunning}
+              onSaved={(updated) => setZones((zs) => zs.map((z) => (z._id === updated._id ? updated : z)))}
+              onClose={() => setEditingZoneId(null)}
+            />
+          )}
+          </>
         )}
       </div>
 
@@ -342,6 +369,58 @@ function BayBoard({ bays, active }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+const readsText = (n = 0) => `${n} read${n === 1 ? "" : "s"}`;
+// What the plate column says when no plate has been read (yet): how hard it has tried.
+function plateStatusText(s) {
+  if (s.plateStatus === "too_small") return "too small to read";
+  if (s.plateStatus === "unreadable") return `unreadable · ${readsText(s.plateReads)}`;
+  return `reading · ${readsText(s.plateReads)}`;
+}
+
+// Per-zone spacing rule: ignore it here, or use this zone's own gap instead of the default.
+function ZoneSpacingEditor({ zone, disabled, onSaved, onClose }) {
+  const [ignore, setIgnore] = useState(!!zone.ignoreSpacing);
+  const [gap, setGap] = useState(zone.minGapRatio == null ? "" : String(Math.round(zone.minGapRatio * 100)));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    setSaving(true); setError("");
+    try {
+      const { data } = await api.patch(`/api/zones/${zone._id}`, {
+        ignoreSpacing: ignore,
+        minGapRatio: gap === "" ? null : Number(gap) / 100,
+      });
+      onSaved(data.zone);
+      onClose();
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card p-4 mt-3 text-sm max-w-md">
+      <div className="font-medium mb-2">Spacing in "{zone.name}"</div>
+      <label className="flex items-center gap-2 mb-3">
+        <input type="checkbox" checked={ignore} onChange={(e) => setIgnore(e.target.checked)} disabled={disabled} />
+        Ignore spacing in this zone (never flag "too close")
+      </label>
+      <label className="block mb-1">Minimum gap (% of the vehicle's width)</label>
+      <input type="number" min="0" max="200" step="1" className="field w-40" value={gap} placeholder="default"
+        onChange={(e) => setGap(e.target.value)} disabled={disabled || ignore} />
+      <div className="text-xs text-ink/50 mt-1">Empty = the default. 0 = no check. Tighter lots need a smaller gap.</div>
+      {disabled && <div className="text-xs text-amber mt-2">Stop detection to change this.</div>}
+      {error && <div className="text-xs text-signal mt-2">{error}</div>}
+      <div className="flex gap-2 mt-3">
+        <button className="btn-primary text-xs" onClick={save} disabled={disabled || saving}>{saving ? "Saving…" : "Save"}</button>
+        <button className="btn-outline text-xs" onClick={onClose}>Close</button>
       </div>
     </div>
   );
@@ -453,7 +532,13 @@ function SessionTable({ title, rows, onImageClick }) {
               <tbody>
                 {visible.map((s) => (
                   <tr key={s.sessionKey} className="border-b border-line last:border-0">
-                    <td className="px-4 py-2 mono whitespace-nowrap">{s.plate || "—"}</td>
+                    <td className="px-4 py-2 mono whitespace-nowrap">
+                      {s.plate ? (
+                        <>{s.plate}<span className="ml-2 text-xs text-ink/40 font-sans">{readsText(s.plateReads)}</span></>
+                      ) : (
+                        <span className="text-xs text-ink/50 font-sans">{plateStatusText(s)}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 whitespace-nowrap">{s.vehicleType}</td>
                     <td className="px-4 py-2">{s.zoneName}{s.bayName && <span className="text-ink/50"> · {s.bayName}</span>}</td>
                     <td className="px-4 py-2 mono whitespace-nowrap">{fmtDuration(s.durationSeconds)}</td>

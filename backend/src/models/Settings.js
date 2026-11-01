@@ -10,6 +10,7 @@ const settingsSchema = new mongoose.Schema(
     rateUnit: { type: String, enum: ["minute", "hour"] },
     roundUp: Boolean,
     ruleAmount: Number,
+    bayRulesEnabled: Boolean, // false = bays stay drawn but nothing is allocated or flagged
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }

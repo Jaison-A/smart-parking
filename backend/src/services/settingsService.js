@@ -2,7 +2,8 @@ import { Settings } from "../models/Settings.js";
 import { env } from "../config/env.js";
 import { validateFineSettings } from "./fineMath.js";
 
-const FIELDS = ["baseAmount", "rate", "rateUnit", "roundUp", "ruleAmount"];
+export const SETTING_FIELDS = ["baseAmount", "rate", "rateUnit", "roundUp", "ruleAmount", "bayRulesEnabled"];
+const FIELDS = SETTING_FIELDS;
 
 // Used until an admin saves their own values.
 export const envDefaults = () => ({
@@ -11,6 +12,7 @@ export const envDefaults = () => ({
   rateUnit: "minute",
   roundUp: true,
   ruleAmount: env.fineRuleAmount,
+  bayRulesEnabled: true,
 });
 
 export async function getFineSettings() {

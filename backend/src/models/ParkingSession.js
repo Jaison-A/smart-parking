@@ -17,6 +17,11 @@ const sessionSchema = new mongoose.Schema(
     startedAt: { type: Date, required: true },
     endedAt: { type: Date, default: null },
     durationSeconds: { type: Number, default: 0 },
+    plateReads: { type: Number, default: 0 }, // OCR reads this vehicle has had so far
+    // reading | read | too_small (vehicle too small in the picture) | unreadable (gave up)
+    plateStatus: { type: String, default: "reading" },
+    videoStartSeconds: { type: Number, default: null },
+    videoEndSeconds: { type: Number, default: null },
     isViolation: { type: Boolean, default: false },
     status: { type: String, enum: ["active", "closed"], default: "active" },
     // Evidence: a photo when the vehicle is first seen parked and one when it

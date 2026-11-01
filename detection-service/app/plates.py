@@ -18,12 +18,14 @@ class PlateVote:
     def __init__(self, min_reads: int = 2, max_attempts: int = 25):
         self.min_reads = min_reads
         self.max_attempts = max_attempts
-        self.attempts = 0
+        self.attempts = 0  # counts toward giving up (give_up() fills it)
+        self.reads = 0     # real OCR reads actually made - what the dashboard shows
         self._score: dict[str, float] = defaultdict(float)
         self._count: Counter[str] = Counter()
 
     def add(self, read: tuple[str, float] | None) -> None:
         self.attempts += 1
+        self.reads += 1
         if read:
             text, conf = read
             self._score[text] += conf
@@ -68,9 +70,16 @@ class PlateReader:
 
     # ------------------------------------------------------------------ public
     @staticmethod
+    def min_vehicle_px() -> int:
+        # With a plate-detector model the plate is found directly, so smaller vehicles
+        # are worth trying; without one OCR has to guess where the plate is.
+        need = settings.plate_min_vehicle_px_with_model if settings.plate_model else settings.plate_min_vehicle_px
+        return max(40, need)
+
+    @staticmethod
     def can_read(bbox) -> bool:
         """False when the vehicle is too small in the picture for a plate to be legible."""
-        return (bbox[2] - bbox[0]) >= max(40, settings.plate_min_vehicle_px)
+        return (bbox[2] - bbox[0]) >= PlateReader.min_vehicle_px()
 
     def read(self, frame, bbox) -> tuple[str, float] | None:
         import cv2
@@ -80,10 +89,13 @@ class PlateReader:
         crop = frame[max(y1, 0):min(y2, h), max(x1, 0):min(x2, w)]
         # A plate is roughly a quarter of a car's width: on a small, distant vehicle
         # there are only a few pixels of plate and OCR just burns CPU guessing.
-        if crop.size == 0 or crop.shape[1] < max(40, settings.plate_min_vehicle_px):
+        if crop.size == 0 or crop.shape[1] < self.min_vehicle_px():
             return None
 
-        region = cv2.cvtColor(self._locate_plate(crop), cv2.COLOR_BGR2GRAY)
+        plate = self._locate_plate(crop)
+        if plate is None or plate.size == 0:
+            return None
+        region = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY)
         scale = max(1.0, 320 / region.shape[1])
         if scale > 1:
             region = cv2.resize(region, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
@@ -115,13 +127,25 @@ class PlateReader:
         yield binary if np.mean(binary) > 127 else cv2.bitwise_not(binary)
 
     def _locate_plate(self, vehicle_crop):
-        """Tight plate crop if a plate model is configured, else the lower part of the vehicle."""
+        """The plate region to run OCR on, or None if there is nothing worth reading.
+
+        With a plate-detector model: the model finds the plate and OCR gets a tight,
+        sharp crop (None if it finds no plate, or the plate is too narrow to read -
+        guessing on the bumper would only produce noise). Without one: the lower part
+        of the vehicle, where plates usually are.
+        """
         if self._plate_model is not None:
-            res = self._plate_model.predict(vehicle_crop, verbose=False, conf=0.3)[0]
-            if res.boxes is not None and len(res.boxes):
-                i = int(res.boxes.conf.argmax())
-                x1, y1, x2, y2 = (int(v) for v in res.boxes.xyxy[i].tolist())
-                return vehicle_crop[y1:y2, x1:x2]
+            res = self._plate_model.predict(vehicle_crop, verbose=False, conf=0.3, imgsz=640)[0]
+            if res.boxes is None or len(res.boxes) == 0:
+                return None
+            i = int(res.boxes.conf.argmax())
+            x1, y1, x2, y2 = (int(v) for v in res.boxes.xyxy[i].tolist())
+            h, w = vehicle_crop.shape[:2]
+            pad_x, pad_y = int(0.08 * (x2 - x1)), int(0.15 * (y2 - y1))  # margin so no character is clipped
+            x1, y1 = max(0, x1 - pad_x), max(0, y1 - pad_y)
+            x2, y2 = min(w, x2 + pad_x), min(h, y2 + pad_y)
+            plate = vehicle_crop[y1:y2, x1:x2]
+            return plate if plate.shape[1] >= settings.plate_min_plate_px else None
         h = vehicle_crop.shape[0]
         return vehicle_crop[int(h * 0.45):, :]
 

@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { connectDB } from "./config/db.js";
 import { initSockets } from "./sockets/index.js";
 import { env } from "./config/env.js";
+import { startJobMonitor } from "./services/jobMonitor.js";
 
 async function main() {
   await connectDB();
@@ -26,7 +27,10 @@ async function main() {
     throw err;
   });
 
-  httpServer.listen(env.port, () => console.log(`[server] listening on :${env.port}`));
+  httpServer.listen(env.port, () => {
+    console.log(`[server] listening on :${env.port}`);
+    startJobMonitor(); // resumes or settles jobs the detector has lost
+  });
 }
 
 main().catch((err) => {

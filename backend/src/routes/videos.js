@@ -1,19 +1,16 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import multer from "multer";
 import { v4 as uuid } from "uuid";
 import { Video } from "../models/Video.js";
-import { Zone } from "../models/Zone.js";
 import { ParkingSession } from "../models/ParkingSession.js";
 import { Violation } from "../models/Violation.js";
 import { requireAuth } from "../middleware/auth.js";
-import { startDetectionJob, stopDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
-import { env } from "../config/env.js";
+import { stopDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
+import { videoSource, VIDEO_DIR, launchJob } from "../services/jobStarter.js";
+import { recordAudit } from "../services/auditService.js";
 import { reconcileVideo, settleOrphanedJob } from "../services/jobReconciler.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const VIDEO_DIR = path.resolve(__dirname, "../../uploads/videos");
 
 const ALLOWED_EXT = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm"]);
 const upload = multer({
@@ -47,24 +44,6 @@ const uploadImage = multer({
 export const videosRouter = Router();
 videosRouter.use(requireAuth);
 
-// What to hand the detector: a live camera uses its own URL/index as-is. An
-// uploaded file uses a local path when detector and backend share a disk (the
-// normal local-dev setup), or this backend's own public URL to the file when
-// they don't (PUBLIC_BASE_URL set - e.g. backend on Render, detector on
-// Hugging Face Spaces). Either way we tell the detector explicitly whether
-// this is a live source (see schemas.py is_live) rather than letting it guess
-// from the URL scheme, since an uploaded file served over http(s) would
-// otherwise look identical to a live camera URL.
-function videoSource(video) {
-  if (video.sourceType === "stream") return { path: video.streamUrl, isLive: true };
-  const path_ = env.publicBaseUrl
-    ? `${env.publicBaseUrl.replace(/\/$/, "")}/uploads/videos/${video.storedName}`
-    : path.join(VIDEO_DIR, video.storedName);
-  // A test image never "ends" - the detector keeps re-reading it until Stop - so it
-  // is handled as a live source, not a file with a length.
-  return { path: path_, isLive: video.sourceType === "image" };
-}
-
 const RTSP_OR_HTTP = /^(rtsps?|https?):\/\/.+/i;
 
 // Upload a video to use in place of a live camera feed.
@@ -89,6 +68,7 @@ videosRouter.post("/image", uploadImage.single("image"), async (req, res, next) 
     const video = await Video.create({
       originalName: req.file.originalname,
       sourceType: "image",
+      isTest: true, // a test picture: deletable in one click from Settings
       storedName: req.file.filename,
       sizeBytes: req.file.size,
       uploadedBy: req.user.sub,
@@ -153,23 +133,7 @@ videosRouter.post("/:id/start", async (req, res, next) => {
     if (["queued", "running"].includes(video.status)) {
       return res.status(409).json({ error: "This video is already being processed" });
     }
-    const zones = await Zone.find({ video: video._id });
-    if (zones.length === 0) {
-      return res.status(400).json({ error: "Draw at least one zone on this video before starting detection" });
-    }
-
-    const jobId = uuid();
-    const source = videoSource(video);
-    await startDetectionJob({
-      jobId, videoId: video._id.toString(),
-      videoPath: source.path, isLive: source.isLive, zones,
-      params: req.body?.params,
-    });
-    video.status = "queued";
-    video.progress = 0;
-    video.error = undefined;
-    video.jobId = jobId;
-    await video.save();
+    await launchJob(video, { params: req.body?.params }); // 400s if no zone has been drawn
     res.json({ video });
   } catch (err) { next(err); }
 });
@@ -201,6 +165,20 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
       await video.save();
     }
     res.json({ stopping: true, video });
+  } catch (err) { next(err); }
+});
+
+// Mark a video (and everything recorded from it) as test material, or take the mark off.
+videosRouter.patch("/:id", async (req, res, next) => {
+  try {
+    const { isTest } = req.body ?? {};
+    if (typeof isTest !== "boolean") return res.status(400).json({ error: "isTest must be true or false" });
+    const video = await Video.findByIdAndUpdate(req.params.id, { isTest }, { new: true });
+    if (!video) return res.status(404).json({ error: "Video not found" });
+    await Violation.updateMany({ video: video._id }, { isTest });
+    await recordAudit(req.user, "video.test-flag", { type: "video", id: String(video._id), label: video.originalName },
+      [{ field: "isTest", from: !isTest, to: isTest }]);
+    res.json({ video });
   } catch (err) { next(err); }
 });
 

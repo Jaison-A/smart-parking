@@ -28,7 +28,7 @@ async function call(path, options = {}) {
   return res.headers.get("content-type")?.includes("application/json") ? res.json() : res;
 }
 
-export function startDetectionJob({ jobId, videoId, videoPath, isLive, zones, params }) {
+export function startDetectionJob({ jobId, videoId, videoPath, isLive, zones, params, resume }) {
   return call("/jobs", {
     method: "POST",
     body: JSON.stringify({
@@ -42,8 +42,13 @@ export function startDetectionJob({ jobId, videoId, videoPath, isLive, zones, pa
         name: z.name,
         type: z.type,
         points: z.points.map((p) => [p.x, p.y]),
+        // Spacing rule overrides for this zone (see detection-service schemas.py)
+        min_gap_ratio: z.minGapRatio ?? null,
+        ignore_spacing: !!z.ignoreSpacing,
       })),
       ...(params && { params }),
+      // Resuming a lost job: where it got to and which sessions were open (saved checkpoint).
+      ...(resume && { resume }),
     }),
   });
 }

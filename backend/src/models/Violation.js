@@ -22,6 +22,11 @@ const violationSchema = new mongoose.Schema(
     snapshotPath: { type: String, required: true }, // close-up at the violation moment
     entrySnapshotPath: { type: String, default: null }, // when it was first seen parked
     exitSnapshotPath: { type: String, default: null },  // when it left
+    isTest: { type: Boolean, default: false }, // copied from the video it came from
+    // Position in the video (seconds) - what a hand-labelled list is written in, so the
+    // evaluation script (detection-service/tools/evaluate.py) can compare like with like.
+    videoStartSeconds: { type: Number, default: null },
+    videoEndSeconds: { type: Number, default: null },
     acknowledged: { type: Boolean, default: false },
     fine: { type: mongoose.Schema.Types.ObjectId, ref: "Fine" },
   },

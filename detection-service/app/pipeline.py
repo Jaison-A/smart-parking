@@ -45,7 +45,8 @@ class DetectionJob:
         # run downloads weights), and without this the dashboard sees nothing at all
         # until the first real progress tick, which looks identical to "broken".
         self.client.send({"type": "job_progress", "jobId": req.job_id, "videoId": req.video_id,
-                          "progress": 0.0})
+                          # null on a resume, so the dashboard keeps the saved progress instead of showing 0%
+                          "progress": None if req.resume else 0.0})
         try:
             cap = open_capture(req.video_path)
             if not cap.isOpened():
@@ -58,9 +59,21 @@ class DetectionJob:
             detector = VehicleDetector()
             manager = SessionManager(zones, p)
             reader = self._make_plate_reader()
+
+            # Resuming a job that was lost: carry on from the saved position, with the
+            # saved open sessions, instead of starting again from frame 0.
+            start_frame = req.resume.frame_no if req.resume else 0
+            if req.resume:
+                if req.resume.wall_start:
+                    self._wall_start = datetime.fromisoformat(req.resume.wall_start)
+                if start_frame and not is_live:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)  # a camera has no past to seek to
+                manager.restore(req.resume.sessions, start_frame / fps)
+                log.info("job %s RESUMING from frame %d with %d open sessions",
+                         req.job_id, start_frame, len(req.resume.sessions))
             log.info("job %s started: %dx%d @ %.1ffps, %d zones", req.job_id, width, height, fps, len(zones))
 
-            frame_no, t, last_progress = 0, 0.0, 0.0
+            frame_no, t, last_progress = start_frame, start_frame / fps, start_frame / fps
             last_beat = time.monotonic()  # wall clock: lets the dashboard prove the job is alive
             while not self._stop:
                 ok, frame = cap.read()
@@ -99,7 +112,13 @@ class DetectionJob:
                     self.progress = min(99.0, 100.0 * frame_no / total) if total else 0.0
                     self.client.send({"type": "job_progress", "jobId": req.job_id,
                                       "videoId": req.video_id, "progress": round(self.progress, 1),
-                                      "vehicles": self.vehicle_count})
+                                      "vehicles": self.vehicle_count,
+                                      # Saved by the backend: lets a restarted job pick up from here.
+                                      "checkpoint": {
+                                          "frame_no": frame_no,
+                                          "wall_start": self._wall_start.isoformat(),
+                                          "sessions": manager.snapshot(),
+                                      }})
                 if on_frame and on_frame(annotated) is False:
                     self._stop = True
 
@@ -146,19 +165,29 @@ class DetectionJob:
 
     def _read_plates(self, manager: SessionManager, reader, frame, frame_no: int) -> None:
         p = self.req.params
+        # Only every frame_stride-th frame ever reaches here, so count PROCESSED frames.
+        # Scheduling on the raw frame number meant that with a stride of 2 (only even
+        # numbers) the test (frame_no + track_id) % 6 could never hold for odd track
+        # ids - those vehicles never got a single plate read.
+        processed = frame_no // max(1, p.frame_stride)
         for st in manager.plate_candidates():
             if self._stop:
                 return  # Stop was clicked mid-frame - don't start another OCR read.
             if not reader.can_read(st.bbox):
                 st.votes.give_up()  # too small to ever read: stop wasting CPU, say so on screen
+                st.session.plate_status = "too_small"
                 continue
             # Stagger tracks so we never OCR every vehicle on the same frame.
-            if (frame_no + st.track_id) % p.plate_every_n_frames:
+            if (processed + st.track_id) % p.plate_every_n_frames:
                 continue
             st.votes.add(reader.read(frame, st.bbox))
+            st.session.plate_reads = st.votes.reads
             best = st.votes.best()
             if best:
                 manager.set_plate(st, *best)
+                st.session.plate_status = "read"
+            elif st.votes.locked:
+                st.session.plate_status = "unreadable"
 
     # ------------------------------------------------------------- events out
     def _iso(self, video_seconds: float) -> str:
@@ -174,6 +203,9 @@ class DetectionJob:
             "endedAt": self._iso(s.ended_at) if s.ended_at is not None else None,
             "durationSeconds": round(s.duration(t), 1),
             "bayName": s.bay_name,
+            "plateReads": s.plate_reads, "plateStatus": s.plate_status,
+            "videoStart": round(s.started_at, 1),
+            "videoEnd": round(s.ended_at, 1) if s.ended_at is not None else None,
             "violationKind": s.violation_kind if s.violation_emitted else None,
             "violationDetail": s.violation_detail,
         }
@@ -228,7 +260,8 @@ class DetectionJob:
                 color = TEAL if not s.zone.is_restricted else AMBER
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
             secs = int(s.duration(t))
-            plate_text = s.plate or ("plate unreadable" if st.votes.locked else "reading plate")
+            plate_text = s.plate or {"too_small": "plate too small", "unreadable": "plate unreadable"}.get(
+                s.plate_status, "reading plate")
             label = f"{plate_text}  {secs // 60:02d}:{secs % 60:02d}"
             if s.bay_name:
                 label += f"  [{s.bay_name}]"

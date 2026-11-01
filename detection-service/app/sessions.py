@@ -17,6 +17,11 @@ raises at most ONE violation in total, whichever rule trips first:
   * bays    - if bays are drawn, a parked vehicle is allocated the bay its ground
     footprint sits in. It is flagged if it straddles the bay lines, or if another
     vehicle already holds that bay.
+
+A job that was lost (e.g. the detector restarted) can be resumed: restore() hands
+the manager the sessions that were open, and a vehicle that reappears in the same
+zone, in about the same place, takes its old session over instead of starting a new
+one - so its parked time carries on and it cannot be fined twice.
 """
 import uuid
 from collections import deque
@@ -52,6 +57,8 @@ class ParkingSession:
     plate_dirty: bool = False
     info_dirty: bool = False  # something other than the plate changed (e.g. its bay)
     last_heartbeat: float = 0.0
+    plate_reads: int = 0  # how many OCR reads this vehicle has had so far
+    plate_status: str = "reading"  # reading | read | too_small | unreadable
 
     def duration(self, now: float) -> float:
         return max(0.0, (self.ended_at if self.ended_at is not None else now) - self.started_at)
@@ -86,9 +93,12 @@ class TrackState:
 class SessionManager:
     def __init__(self, zones: list[Zone], params: JobParams):
         self.zones = [z for z in zones if not z.is_bay]
-        self.bays = [z for z in zones if z.is_bay]
+        # Bays switched off in Settings: they are still drawn, but nothing is allocated or flagged.
+        self.bays = [z for z in zones if z.is_bay] if params.bay_rules_enabled else []
         self.p = params
         self.tracks: dict[int, TrackState] = {}
+        self._restored: list[ParkingSession] = []  # sessions from before a restart, not yet re-matched
+        self._restore_deadline: float | None = None
 
     # ------------------------------------------------------------------ public
     def update(self, t: float, detections: list[dict]) -> list[Event]:
@@ -106,6 +116,7 @@ class SessionManager:
             events += self._step(st, det, t)
         events += self._check_rules(t)
         events += self._sweep(t, seen)
+        events += self._expire_restored(t)
         return events
 
     def finish(self, t: float) -> list[Event]:
@@ -163,6 +174,18 @@ class SessionManager:
                 events += self._close(st, st.moving_since, "moved_away")
                 st.stationary_since = None
 
+        # ---- after a restart: parked and still right where a pre-restart session was?
+        # Then it is the same vehicle - take the old session over. This has to come BEFORE
+        # the normal "open a new session" step, otherwise a vehicle that has already been
+        # still long enough would get a brand-new session (and a second fine).
+        if (st.session is None and self._restored and st.zone is not None
+                and st.stationary_since is not None):
+            old = self._take_restored(st)
+            if old is not None:
+                old.track_id, old.bbox, old.last_heartbeat = st.track_id, st.bbox, t
+                st.session = old
+                events.append(Event("session_updated", old))
+
         # ---- open a session once it has been parked long enough
         if (st.session is None and st.zone is not None and st.stationary_since is not None
                 and t - st.stationary_since >= p.min_session_s):
@@ -213,8 +236,11 @@ class SessionManager:
             if st.bay is not None:
                 if st.bay_overlap < p.bay_min_overlap:
                     problems[st.track_id] = ("bay_straddle", f"Not parked inside a single bay ({st.bay.name})")
-            elif p.min_gap_ratio > 0 and self._too_close(st, parked):
-                problems[st.track_id] = ("spacing", "Parked too close to another vehicle")
+            else:
+                zone = st.session.zone
+                ratio = p.min_gap_ratio if zone.min_gap_ratio is None else zone.min_gap_ratio
+                if not zone.ignore_spacing and ratio > 0 and self._too_close(st, parked, ratio):
+                    problems[st.track_id] = ("spacing", "Parked too close to another vehicle")
         for group in occupants.values():
             group.sort(key=lambda s_: (s_.session.started_at, s_.track_id))
             for later in group[1:]:  # first to arrive keeps the bay
@@ -249,9 +275,9 @@ class SessionManager:
                 best, best_f = bay, f
         return (best, best_f) if best_f >= BAY_ASSIGN_MIN else (None, 0.0)
 
-    def _too_close(self, st: TrackState, parked: list[TrackState]) -> bool:
+    def _too_close(self, st: TrackState, parked: list[TrackState], ratio: float) -> bool:
         """True if `st` sits side by side with an EARLIER-parked vehicle in the same
-        zone, with a gap narrower than min_gap_ratio of the narrower vehicle."""
+        zone, with a gap narrower than `ratio` of the narrower vehicle."""
         a, s = st.bbox, st.session
         for other in parked:
             o = other.session
@@ -264,9 +290,63 @@ class SessionManager:
             if not same_row:
                 continue
             gap = max(a[0], b[0]) - min(a[2], b[2])  # negative when the boxes overlap
-            if gap < self.p.min_gap_ratio * min(a[2] - a[0], b[2] - b[0]):
+            if gap < ratio * min(a[2] - a[0], b[2] - b[0]):
                 return True
         return False
+
+    # ----------------------------------------------- checkpoint and resume
+    def snapshot(self) -> list[dict]:
+        """The open sessions, in the shape ResumeSession expects - saved by the backend
+        every few seconds so a lost job can be resumed from here."""
+        sessions = [st.session for st in self.tracks.values() if st.session is not None]
+        return [{
+            "session_id": s.id, "zone_id": s.zone.id, "vehicle_type": s.vehicle_type,
+            "started_at": s.started_at, "bbox": [int(v) for v in s.bbox],
+            "plate": s.plate, "plate_confidence": s.plate_confidence,
+            "violation_emitted": s.violation_emitted, "violation_kind": s.violation_kind,
+            "violation_detail": s.violation_detail, "bay_name": s.bay_name,
+        } for s in sessions + self._restored]  # not-yet-rematched ones survive a second restart
+
+    def restore(self, sessions, t: float) -> None:
+        """Re-create the sessions that were open when the job was lost (t = resume time)."""
+        by_id = {z.id: z for z in self.zones}
+        self._restored = []
+        for r in sessions:
+            zone = by_id.get(r.zone_id)
+            if zone is None:
+                continue  # the zone has since been deleted
+            self._restored.append(ParkingSession(
+                id=r.session_id, track_id=-1, zone=zone, vehicle_type=r.vehicle_type,
+                started_at=r.started_at, bbox=tuple(r.bbox), plate=r.plate,
+                plate_confidence=r.plate_confidence, violation_emitted=r.violation_emitted,
+                violation_kind=r.violation_kind, violation_detail=r.violation_detail,
+                bay_name=r.bay_name, last_heartbeat=t,
+                plate_status="read" if r.plate else "reading",
+            ))
+        self._restore_deadline = t + self.p.restore_grace_s
+
+    def _take_restored(self, st: TrackState) -> ParkingSession | None:
+        best, best_iou = None, 0.3  # needs a real overlap, not just the same zone
+        for old in self._restored:
+            if old.zone.id != st.zone.id:
+                continue
+            score = _iou(old.bbox, st.bbox)
+            if score >= best_iou:
+                best, best_iou = old, score
+        if best is not None:
+            self._restored.remove(best)
+        return best
+
+    def _expire_restored(self, t: float) -> list[Event]:
+        """Restored sessions whose vehicle never came back (it left during the outage)."""
+        if not self._restored or self._restore_deadline is None or t < self._restore_deadline:
+            return []
+        events = []
+        for old in self._restored:
+            old.ended_at = max(self._restore_deadline - self.p.restore_grace_s, old.started_at)
+            events.append(Event("session_ended", old, "lost_in_restart"))
+        self._restored = []
+        return events
 
     def _violation_due(self, s: ParkingSession, duration: float) -> bool:
         if not s.zone.is_restricted or s.violation_emitted:
@@ -307,3 +387,12 @@ class SessionManager:
                 events += self._close(st, st.last_seen, "track_lost")
                 del self.tracks[tid]
         return events
+
+
+def _iou(a: tuple, b: tuple) -> float:
+    """Overlap of two (x1, y1, x2, y2) boxes divided by their combined area."""
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0

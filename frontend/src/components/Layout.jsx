@@ -9,6 +9,8 @@ const nav = [
   { to: "/violations", label: "Violations", end: true },
   { to: "/violations/today", label: "Today" },
   { to: "/fines", label: "Fines" },
+  { to: "/owners", label: "Owners", adminOnly: true },
+  { to: "/audit", label: "Audit log", adminOnly: true },
   { to: "/settings", label: "Settings", adminOnly: true },
 ];
 

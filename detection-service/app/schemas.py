@@ -13,6 +13,10 @@ class ZoneIn(BaseModel):
     type: Literal["parking", "no_parking", "bay"]
     # Normalised coordinates (0..1) so a zone works at any video resolution.
     points: list[tuple[float, float]] = Field(min_length=3)
+    # Per-zone spacing rule (parking zones). None = use the job-wide gap ratio.
+    min_gap_ratio: float | None = Field(default=None, ge=0)
+    # True = never raise "too close" violations inside this zone.
+    ignore_spacing: bool = False
 
 
 class JobParams(BaseModel):
@@ -41,8 +45,35 @@ class JobParams(BaseModel):
     # A spacing / bay problem must persist this long before it counts (filters
     # a car still straightening up, or a neighbour's track flickering).
     rule_hold_s: float = settings.rule_hold_s
+    # False = bays are still drawn but nothing is allocated or flagged (admin setting).
+    bay_rules_enabled: bool = True
     plate_every_n_frames: int = 6
     plate_max_attempts: int = 25
+    # After a resume, a session that was parked before the restart waits this long
+    # (video seconds) for its vehicle to be seen again before it is closed.
+    restore_grace_s: float = 10.0
+
+
+class ResumeSession(BaseModel):
+    """A parking session that was open when the previous run of a job was lost."""
+    session_id: str
+    zone_id: str
+    vehicle_type: str = "car"
+    started_at: float  # video seconds
+    bbox: tuple[int, int, int, int]
+    plate: str | None = None
+    plate_confidence: float | None = None
+    violation_emitted: bool = False
+    violation_kind: str = "no_parking"
+    violation_detail: str | None = None
+    bay_name: str | None = None
+
+
+class ResumeState(BaseModel):
+    """Where a lost job got to, saved by the backend, so a restarted job can carry on."""
+    frame_no: int = Field(ge=0)
+    wall_start: str | None = None  # ISO time of the original run, so timestamps stay continuous
+    sessions: list[ResumeSession] = []
 
 
 class JobRequest(BaseModel):
@@ -58,3 +89,4 @@ class JobRequest(BaseModel):
     is_live: bool | None = None
     zones: list[ZoneIn]
     params: JobParams = JobParams()
+    resume: ResumeState | None = None

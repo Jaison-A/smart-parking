@@ -32,6 +32,11 @@ function amount(input, label) {
   return n;
 }
 
+function bool(v, label) {
+  if (typeof v !== "boolean") throw Object.assign(new Error(`${label} must be true or false`), { status: 400 });
+  return v;
+}
+
 /** Checks what an admin submitted and returns clean values, or throws a 400. */
 export function validateFineSettings(input = {}) {
   const rateUnit = input.rateUnit;
@@ -47,5 +52,7 @@ export function validateFineSettings(input = {}) {
     rateUnit,
     roundUp: input.roundUp,
     ruleAmount: amount(input.ruleAmount, "Rule-violation fine"),
+    // Optional so older clients keep working; bays are checked unless explicitly switched off.
+    bayRulesEnabled: input.bayRulesEnabled === undefined ? true : bool(input.bayRulesEnabled, "bayRulesEnabled"),
   };
 }
