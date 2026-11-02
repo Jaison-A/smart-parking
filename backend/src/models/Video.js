@@ -14,7 +14,7 @@ const videoSchema = new mongoose.Schema(
     height: Number,
     status: {
       type: String,
-      enum: ["uploaded", "queued", "running", "completed", "failed", "stopped"],
+      enum: ["uploaded", "queued", "running", "paused", "completed", "failed", "stopped"],
       default: "uploaded",
     },
     progress: { type: Number, default: 0 },

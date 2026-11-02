@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 from app.plates import PlateVote
 from app.schemas import JobParams
-from app.zones import Zone, find_zone
+from app.zones import Zone, find_zone_for_vehicle
 
 # Bottom share of a vehicle's box treated as its ground "footprint" for bay checks.
 FOOTPRINT_FRACTION = 0.4
@@ -128,8 +128,14 @@ class SessionManager:
         return events
 
     def plate_candidates(self) -> list[TrackState]:
-        """Parked vehicles whose plate we are still trying to read."""
-        return [s for s in self.tracks.values() if s.session and not s.votes.locked]
+        """Unread no-parking vehicles only.
+
+        OCR is the slowest operation in a crowded scene. Legal-parking vehicles
+        do not need a plate for enforcement, so reading every one can prevent the
+        no-parking alert from advancing at a useful rate.
+        """
+        return [s for s in self.tracks.values()
+                if s.session and s.session.zone.is_restricted and not s.votes.locked]
 
     def set_plate(self, st: TrackState, plate: str, confidence: float) -> None:
         s = st.session
@@ -149,7 +155,7 @@ class SessionManager:
             st.history.popleft()
 
         # ---- which zone is the vehicle in? (with a grace period at the border)
-        zone = find_zone(self.zones, foot)
+        zone = find_zone_for_vehicle(self.zones, det["bbox"])
         if zone is not None:
             st.outside_since = None
             if st.zone is None or st.zone.id != zone.id:

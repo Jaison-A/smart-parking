@@ -65,6 +65,26 @@ def stop_job(job_id: str):
     return {"jobId": job_id, "stopping": True}
 
 
+@app.post("/jobs/{job_id}/pause", dependencies=[Depends(require_key)])
+def pause_job(job_id: str):
+    job = jobs.get(job_id) or _404()
+    if job.status not in ("queued", "running"):
+        raise HTTPException(409, f"Job cannot be paused while {job.status}")
+    job.pause()
+    return {"jobId": job_id, "status": job.status}
+
+
+@app.post("/jobs/{job_id}/resume", dependencies=[Depends(require_key)])
+def resume_job(job_id: str):
+    job = jobs.get(job_id) or _404()
+    if job.status != "paused":
+        raise HTTPException(409, f"Job cannot be resumed while {job.status}")
+    if any(other is not job and other.status in ("queued", "running") for other in jobs.values()):
+        raise HTTPException(409, "Another detection job is already running")
+    job.resume()
+    return {"jobId": job_id, "status": job.status}
+
+
 @app.get("/jobs/{job_id}/stream")
 def stream(job_id: str):
     """Live annotated video as MJPEG - drop it straight into an <img src>."""
@@ -77,7 +97,7 @@ def stream(job_id: str):
             if jpeg is not None and jpeg is not last:
                 last = jpeg
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
-            elif job.status not in ("queued", "running"):
+            elif job.status not in ("queued", "running", "paused"):
                 return
             else:
                 time.sleep(0.03)

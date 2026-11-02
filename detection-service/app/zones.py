@@ -8,7 +8,8 @@ import numpy as np
 from app.schemas import ZoneIn
 
 # BGR colours used when drawing.
-COLOR_PARKING = (0, 255, 80)      # bright green (BGR) - was a dark olive that vanished into asphalt
+# Muted/dark green so the parking-zone fill does not hide vehicles or markings.
+COLOR_PARKING = (65, 135, 70)
 COLOR_RESTRICTED = (57, 40, 198)
 COLOR_BAY = (255, 170, 0)         # bright blue (BGR) - a single parking slot
 
@@ -78,13 +79,35 @@ def find_zone(zones: list[Zone], point: tuple[float, float]) -> Zone | None:
     return next((z for z in inside if z.is_restricted), inside[0])
 
 
+def find_zone_for_vehicle(zones: list[Zone], rect: tuple[int, int, int, int]) -> Zone | None:
+    """Find the zone under a vehicle's tyres, not merely under one bbox pixel.
+
+    Detector boxes are deliberately generous and often extend below a car's tyres.
+    A single bottom-centre point can therefore fall just outside a hand-drawn zone
+    even while most of the parked car visibly overlaps it.  Prefer that point when
+    it is inside; otherwise accept a meaningful overlap of the lower footprint.
+    """
+    x1, y1, x2, y2 = rect
+    direct = find_zone(zones, ((x1 + x2) / 2, y2))
+    if direct is not None:
+        return direct
+    footprint = (x1, int(y2 - (y2 - y1) * 0.4), x2, y2)
+    overlapping = [z for z in zones if not z.is_bay and z.overlap_fraction(footprint) >= 0.20]
+    if not overlapping:
+        return None
+    return next((z for z in overlapping if z.is_restricted), overlapping[0])
+
+
 def draw_zones(frame: np.ndarray, zones: list[Zone]) -> None:
-    overlay = frame.copy()
     for z in zones:
-        if not z.is_bay:  # bays: outline + label only, or a full lot turns solid blue
-            cv2.fillPoly(overlay, [z.polygon], z.color)
-    # 35% fill (was 18%) so the zone reads clearly on busy car-park footage.
-    cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
+        if z.is_bay:
+            continue  # bays are outline + label only
+        # Parking areas should barely tint the footage; the solid outline is the
+        # primary visual cue.  Keep no-parking areas more visible than parking.
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [z.polygon], z.color)
+        alpha = 0.07 if not z.is_restricted else 0.20
+        cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, frame)
     for z in zones:
         # Dark under-stroke first, then the bright coloured line on top: the
         # two-tone edge stays visible on both dark asphalt and bright cars.

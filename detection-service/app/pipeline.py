@@ -1,6 +1,7 @@
 """One detection job = one video (or, later, one camera stream) from start to finish."""
 import base64
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -23,22 +24,37 @@ class DetectionJob:
     def __init__(self, req: JobRequest, client: EventClient):
         self.req = req
         self.client = client
-        self.status = "queued"  # queued | running | completed | failed | stopped
+        self.status = "queued"  # queued | running | paused | completed | failed | stopped
         self.progress = 0.0
         self.vehicle_count = 0  # vehicles detected in the latest processed frame
         self.error: str | None = None
         self.latest_jpeg: bytes | None = None  # for the live MJPEG stream
         self._stop = False
+        self._paused = threading.Event()
         self._wall_start = datetime.now(timezone.utc)
 
     def stop(self) -> None:
         self._stop = True
+        self._paused.clear()
+
+    def pause(self) -> None:
+        self._paused.set()
+        self.status = "paused"
+
+    def resume(self) -> None:
+        self._paused.clear()
+        self.status = "running"
+
+    def _wait_if_paused(self) -> None:
+        while self._paused.is_set() and not self._stop:
+            time.sleep(0.1)
 
     # ------------------------------------------------------------------ run
     def run(self, on_frame=None) -> None:
         """Process the whole video. `on_frame(annotated)` may return False to abort (CLI preview)."""
         req, p = self.req, self.req.params
-        self.status = "running"
+        if not self._paused.is_set():
+            self.status = "running"
         is_live = req.is_live if req.is_live is not None else is_live_source(req.video_path)
         # Tell the backend "I'm alive and starting" straight away - opening the video
         # and loading the model can take anywhere from one to thirty seconds (first
@@ -76,6 +92,9 @@ class DetectionJob:
             frame_no, t, last_progress = start_frame, start_frame / fps, start_frame / fps
             last_beat = time.monotonic()  # wall clock: lets the dashboard prove the job is alive
             while not self._stop:
+                self._wait_if_paused()
+                if self._stop:
+                    break
                 ok, frame = cap.read()
                 if not ok:
                     if is_live and self._reconnect(cap, req.video_path):
@@ -221,7 +240,8 @@ class DetectionJob:
         # (session_ended) - so every record has "parked at / left at" proof, not
         # just a timestamp.
         if frame is not None:
-            color = RED if ev.kind == "violation" else (TEAL if not ev.session.zone.is_restricted else AMBER)
+            color = (RED if ev.session.zone.is_restricted else AMBER) if ev.kind == "violation" \
+                else (TEAL if not ev.session.zone.is_restricted else AMBER)
             snap = self._crop_snapshot(frame, ev.session.bbox, color)
             if ev.kind == "session_started":
                 payload["entrySnapshot"] = snap
@@ -252,10 +272,24 @@ class DetectionJob:
             x1, y1, x2, y2 = st.bbox
             s = st.session
             if s is None:
-                cv2.rectangle(img, (x1, y1), (x2, y2), GRAY, 1)
+                # Show an immediate amber outline as soon as a detected vehicle is
+                # in a no-parking zone.  Session creation needs a short stationary
+                # history, but the operator should not see a misleading grey box
+                # while that timer is being established.
+                zone = st.zone
+                if zone is not None:
+                    color = AMBER if zone.is_restricted else TEAL
+                    cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
+                    cv2.putText(img, "tracking zone", (x1 + 4, max(18, y1 - 6)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+                else:
+                    cv2.rectangle(img, (x1, y1), (x2, y2), GRAY, 1)
                 continue
             if s.violation_emitted:
-                color = RED  # no-parking, too-close and bay violations alike
+                # Red is reserved for a no-parking violation.  A spacing/bay rule
+                # inside a normal parking area remains amber rather than looking
+                # like the vehicle is parked in a prohibited zone.
+                color = RED if s.zone.is_restricted else AMBER
             else:
                 color = TEAL if not s.zone.is_restricted else AMBER
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)

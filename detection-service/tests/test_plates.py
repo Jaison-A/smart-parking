@@ -46,6 +46,29 @@ def test_reads_and_normalises_a_plate():
     assert ocr.calls == 1                    # first rendering was enough
 
 
+def test_reads_a_uk_style_plate_when_enabled_by_the_default_pattern():
+    """The bundled demo contains AO62 KWR, rather than an Indian-style plate."""
+    r = reader(FakeOCR([fragment("AO62 KWR")]))
+    r._regex = re.compile(r"^(?:[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}|[A-Z]{2}\d{2}[A-Z]{3})$")
+    assert r.read(FRAME, BIG)[0] == "AO62KWR"
+
+
+def test_extracts_a_plate_when_ocr_merges_it_with_a_watermark():
+    r = reader(FakeOCR([fragment("SHUTTERSTOCK AO62 KWR")]))
+    r._regex = re.compile(r"^(?:[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}|[A-Z]{2}\d{2}[A-Z]{3})$")
+    assert r.read(FRAME, BIG)[0] == "AO62KWR"
+
+
+def test_tight_bright_plate_candidate_is_read_before_the_full_bumper():
+    import cv2
+
+    frame = FRAME.copy()
+    # A light 100x25 plate in the lower half of the 300px vehicle crop.
+    cv2.rectangle(frame, (220, 230), (320, 255), (245, 245, 245), -1)
+    r = reader(FakeOCR([fragment("TN75AB1234")]))
+    assert r.read(frame, BIG)[0] == "TN75AB1234"
+
+
 def test_falls_back_to_the_second_rendering():
     ocr = FakeOCR([], [fragment("TN75AB1234")])  # first rendering finds nothing
     assert reader(ocr).read(FRAME, BIG)[0] == "TN75AB1234"

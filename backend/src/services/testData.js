@@ -11,7 +11,7 @@ import { NotificationLog } from "../models/NotificationLog.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = path.resolve(__dirname, "../..");
 const UPLOADS_DIR = path.join(BACKEND_ROOT, "uploads");
-const IN_FLIGHT = ["queued", "running"];
+const IN_FLIGHT = ["queued", "running", "paused"];
 
 /** Absolute path of a stored file, or null if it would point outside uploads/ (never delete those). */
 export function safeUploadPath(relative, root = BACKEND_ROOT) {

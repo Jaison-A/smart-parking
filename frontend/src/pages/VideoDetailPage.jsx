@@ -163,7 +163,24 @@ export default function VideoDetailPage() {
     }
   };
 
+  const pause = async () => {
+    setBusy(true); setError("");
+    try {
+      const { data } = await api.post(`/api/videos/${id}/pause`);
+      setVideo(data.video);
+    } catch (err) { setError(apiErrorMessage(err)); } finally { setBusy(false); }
+  };
+
+  const resume = async () => {
+    setBusy(true); setError("");
+    try {
+      const { data } = await api.post(`/api/videos/${id}/resume`);
+      setVideo(data.video);
+    } catch (err) { setError(apiErrorMessage(err)); } finally { setBusy(false); }
+  };
+
   const isRunning = video && ["queued", "running"].includes(video.status);
+  const isActive = video && ["queued", "running", "paused"].includes(video.status);
   const active = useMemo(() => sessions.filter((s) => s.status === "active"), [sessions]);
   const history = useMemo(() => sessions.filter((s) => s.status !== "active"), [sessions]);
 
@@ -213,11 +230,20 @@ export default function VideoDetailPage() {
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
-          {isRunning ? (
-            <button className="btn-danger inline-flex items-center gap-2" onClick={stop} disabled={busy || stopRequested}>
-              {stopRequested && <Spinner />}
-              {stopRequested ? "Stopping…" : "Stop detection"}
-            </button>
+          {isActive ? (
+            <>
+              {video.status === "paused" ? (
+                <button className="btn-primary inline-flex items-center gap-2" onClick={resume} disabled={busy}>
+                  {busy && <Spinner />}Resume detection
+                </button>
+              ) : (
+                <button className="btn-outline" onClick={pause} disabled={busy || stopRequested}>Pause</button>
+              )}
+              <button className="btn-danger inline-flex items-center gap-2" onClick={stop} disabled={busy || stopRequested}>
+                {stopRequested && <Spinner />}
+                {stopRequested ? "Stopping…" : "Stop detection"}
+              </button>
+            </>
           ) : (
             <button className="btn-primary inline-flex items-center gap-2" onClick={start} disabled={busy || zones.length === 0}>
               {busy && <Spinner />}
@@ -229,10 +255,10 @@ export default function VideoDetailPage() {
 
       {/* Always-visible progress bar whenever something is in flight, so a click
           never just sits there with no feedback. */}
-      {(isRunning || stopRequested) && (
+      {(isActive || stopRequested) && (
         <ProgressBar
           tone={stopRequested ? "amber" : "ink"}
-          indeterminate={stopRequested || video.status === "queued" || video.sourceType !== "upload"}
+          indeterminate={stopRequested || video.status === "queued" || video.status === "paused" || video.sourceType !== "upload"}
           value={video.progress}
         />
       )}
@@ -253,9 +279,9 @@ export default function VideoDetailPage() {
           needs a dead "feed appears once started" box - the zone editor gets
           the space instead. */}
       <div className="mb-8">
-        {video.status === "running" ? (
+        {["running", "paused"].includes(video.status) ? (
           <>
-            <h2 className="text-sm font-medium mb-2">Live feed</h2>
+            <h2 className="text-sm font-medium mb-2">{video.status === "paused" ? "Paused feed" : "Live feed"}</h2>
             <LiveFeed src={`${DETECTOR_STREAM}/jobs/${video.jobId}/stream`} />
           </>
         ) : video.status === "queued" ? (
@@ -314,7 +340,7 @@ export default function VideoDetailPage() {
                 {z.type === "parking" && !z.ignoreSpacing && z.minGapRatio != null && (
                   <span className="text-ink/50">· gap {Math.round(z.minGapRatio * 100)}%</span>
                 )}
-                {!isRunning && (
+                {!isActive && (
                   <button onClick={() => deleteZone(z._id)} aria-label={`Delete ${z.name}`}>✕</button>
                 )}
               </span>
@@ -324,7 +350,7 @@ export default function VideoDetailPage() {
             <ZoneSpacingEditor
               key={editingZoneId}
               zone={zones.find((z) => z._id === editingZoneId)}
-              disabled={isRunning}
+              disabled={isActive}
               onSaved={(updated) => setZones((zs) => zs.map((z) => (z._id === updated._id ? updated : z)))}
               onClose={() => setEditingZoneId(null)}
             />
@@ -476,6 +502,7 @@ function statusLabel(video, stopRequested) {
   if (stopRequested) return "stopping…";
   if (video.status === "queued") return "starting…";
   if (video.status === "running") return video.sourceType === "upload" ? `running · ${video.progress}%` : video.sourceType === "image" ? "running · test image" : "running · live";
+  if (video.status === "paused") return "paused";
   return video.status;
 }
 

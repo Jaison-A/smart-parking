@@ -5,8 +5,9 @@ import numpy as np
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 # The pretend frame rate of a still image. It only sets how fast "video time"
-# passes for the stationary / violation timers; low enough that a CPU can keep up.
-IMAGE_FPS = 5.0
+# passes for the stationary / violation timers.  A low rate means the detector
+# needs only a few expensive inference passes to demonstrate a test violation.
+IMAGE_FPS = 2.0
 
 
 def is_image_source(source: str) -> bool:

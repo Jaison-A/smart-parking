@@ -62,6 +62,14 @@ export function stopDetectionJob(jobId) {
   return call(`/jobs/${jobId}/stop`, { method: "POST" });
 }
 
+export function pauseDetectionJob(jobId) {
+  return call(`/jobs/${jobId}/pause`, { method: "POST" });
+}
+
+export function resumeDetectionJob(jobId) {
+  return call(`/jobs/${jobId}/resume`, { method: "POST" });
+}
+
 export function detectorFrameUrl(videoPath) {
   return `${env.detectorUrl}/frame?path=${encodeURIComponent(videoPath)}`;
 }

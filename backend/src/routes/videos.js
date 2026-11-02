@@ -6,7 +6,7 @@ import { Video } from "../models/Video.js";
 import { ParkingSession } from "../models/ParkingSession.js";
 import { Violation } from "../models/Violation.js";
 import { requireAuth } from "../middleware/auth.js";
-import { stopDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
+import { stopDetectionJob, pauseDetectionJob, resumeDetectionJob, fetchFirstFrame } from "../services/detectorClient.js";
 import { videoSource, VIDEO_DIR, launchJob } from "../services/jobStarter.js";
 import { recordAudit } from "../services/auditService.js";
 import { reconcileVideo, settleOrphanedJob } from "../services/jobReconciler.js";
@@ -165,6 +165,32 @@ videosRouter.post("/:id/stop", async (req, res, next) => {
       await video.save();
     }
     res.json({ stopping: true, video });
+  } catch (err) { next(err); }
+});
+
+// Pause keeps the Python job, video position and in-memory tracker state alive.
+// A paused job does not occupy the detector, so another video may be started.
+videosRouter.post("/:id/pause", async (req, res, next) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: "Video not found" });
+    if (!["queued", "running"].includes(video.status)) return res.status(409).json({ error: "This job is not running" });
+    await pauseDetectionJob(video.jobId);
+    video.status = "paused";
+    await video.save();
+    res.json({ video });
+  } catch (err) { next(err); }
+});
+
+videosRouter.post("/:id/resume", async (req, res, next) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: "Video not found" });
+    if (video.status !== "paused") return res.status(409).json({ error: "This job is not paused" });
+    await resumeDetectionJob(video.jobId);
+    video.status = "running";
+    await video.save();
+    res.json({ video });
   } catch (err) { next(err); }
 });
 

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, apiErrorMessage } from "../lib/api.js";
 
 const STATUS_STYLE = {
-  uploaded: "text-ink/50", queued: "text-amber", running: "text-amber",
+  uploaded: "text-ink/50", queued: "text-amber", running: "text-amber", paused: "text-amber",
   completed: "text-ok", failed: "text-signal", stopped: "text-ink/50",
 };
 

@@ -34,11 +34,26 @@ export async function launchJob(video, { params, resume } = {}) {
   const settings = await getFineSettings();
   const jobId = uuid();
   const source = videoSource(video);
+  // A still image is an explicit demo/test source: repeating it for the normal
+  // 30-second enforcement threshold makes one click look broken on a CPU.  Keep
+  // production video/camera timings unchanged, but make the test path prove the
+  // complete session -> plate -> violation flow in a few analysed frames.
+  const testImageParams = video.sourceType === "image" ? {
+    stationary_window_s: 0.4,
+    // A still image is re-detected each pass; tolerate small YOLO box jitter
+    // so it is recognised as stationary rather than continually "moving".
+    stationary_ratio: 1.0,
+    min_session_s: 0.5,
+    no_parking_threshold_s: 2.0,
+    plate_wait_s: 0.0,
+    frame_stride: 1,
+    plate_every_n_frames: 1,
+  } : {};
   await startDetectionJob({
     jobId, videoId: video._id.toString(),
     videoPath: source.path, isLive: source.isLive, zones,
     // Settings page -> detector: bays can be switched off without touching the zones.
-    params: { bay_rules_enabled: settings.bayRulesEnabled, ...params },
+    params: { ...testImageParams, bay_rules_enabled: settings.bayRulesEnabled, ...params },
     resume,
   });
 

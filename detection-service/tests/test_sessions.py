@@ -83,6 +83,20 @@ class TestLegalParking:
         assert st.session.duration(t_end) >= 14
 
 
+def test_vehicle_with_footprint_in_zone_is_not_rejected_by_a_loose_detector_box():
+    """The bbox bottom may be below a zone even when the parked car overlaps it."""
+    zones = build_zones([ZoneIn(id="NP", name="No parking", type="no_parking",
+                                points=[(0.1, 0.5), (0.6, 0.5), (0.6, 0.9), (0.1, 0.9)])], W, H)
+    mgr = SessionManager(zones, params(min_session_s=1))
+    # Bottom centre is y=550 (outside the y=300..540 zone), but the bottom 40%
+    # of this deliberately loose/tall detector box has substantial overlap with it.
+    det = {"track_id": 1, "class_name": "car", "confidence": 0.9, "bbox": (270, 430, 330, 550)}
+    events = []
+    for t in (0, 0.5, 1, 1.5, 2):
+        events += mgr.update(t, [det])
+    assert "session_started" in [e.kind for e in events]
+
+
 class TestMovingVehiclesIgnored:
     def test_passing_through_zone_does_not_open_session(self):
         mgr = SessionManager(make_zones(), params())

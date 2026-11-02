@@ -21,7 +21,9 @@ class ZoneIn(BaseModel):
 
 class JobParams(BaseModel):
     # A vehicle stopped this long inside a no-parking zone is a violation.
-    no_parking_threshold_s: float = 30.0
+    # Five seconds keeps the dashboard responsive while still filtering a brief
+    # drive-through. Test images override this with two seconds.
+    no_parking_threshold_s: float = 5.0
     # How long a vehicle must barely move to count as "stationary".
     stationary_window_s: float = 2.0
     # "Barely move" = position range below this fraction of the vehicle's width.
@@ -33,7 +35,8 @@ class JobParams(BaseModel):
     exit_grace_s: float = 2.0
     lost_grace_s: float = 5.0
     # After the threshold, wait this long for a readable plate before fining anyway.
-    plate_wait_s: float = 10.0
+    # Do not hold up a no-parking alert for a plate that is too distant to read.
+    plate_wait_s: float = 0.0
     heartbeat_s: float = 5.0
     # Process every Nth frame (2 = twice as fast, negligible accuracy loss).
     frame_stride: int = 2

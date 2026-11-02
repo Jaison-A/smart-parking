@@ -54,7 +54,10 @@ class Settings:
 
     plate_ocr_enabled: bool = _flag("PLATE_OCR", True)
     plate_model: str = os.getenv("PLATE_MODEL", "")
-    plate_regex: str = os.getenv("PLATE_REGEX", r"^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$")
+    # Indian plates (TN09AB1234) are the primary format.  The demo footage also
+    # includes UK vehicles (AO62KWR), so accept that standard format as well.
+    # A deployment can still replace this entirely with PLATE_REGEX.
+    plate_regex: str = os.getenv("PLATE_REGEX", r"^(?:[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}|[A-Z]{2}\d{2}[A-Z]{3})$")
 
     video_root: Path = Path(
         os.getenv("VIDEO_ROOT", str(BASE_DIR.parent / "backend" / "uploads" / "videos"))

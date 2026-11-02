@@ -99,7 +99,7 @@ least one zone, and click **Start detection**.
 
 ## A test video that actually shows the plate feature
 
-`no_parking_threshold_s` defaults to 30 seconds, and OCR needs the plate
+`no_parking_threshold_s` defaults to 5 seconds, and OCR needs the plate
 clearly visible — close enough, facing the camera, not too blurry. Most
 "traffic camera" clips online are filmed from too high or too far away for
 that. Good sources for a demo clip:
@@ -109,6 +109,10 @@ that. Good sources for a demo clip:
 - For the demo itself, `no_parking_threshold_s` can be lowered (pass
   `params` when starting a job, or edit `JobParams` defaults) so you don't
   have to wait 30 real seconds per violation while presenting.
+
+The bundled recognition pattern accepts Indian plates such as `TN75AB1234` and
+UK plates such as `AO62KWR`. Set `PLATE_REGEX` in `detection-service/.env` if
+your deployment needs a different local plate format.
 
 If no plate is ever read, the system still logs the violation, notifies the
 dashboard and issues the fine after `plate_wait_s` — it just says
