@@ -19,9 +19,16 @@ const violationSchema = new mongoose.Schema(
     // which stage a record is at.
     durationSeconds: { type: Number, required: true },
     finalized: { type: Boolean, default: false },
-    snapshotPath: { type: String, required: true }, // close-up at the violation moment
+    // Close-up at the violation moment. Not required: if the photo could not be saved the
+    // violation and its fine must still be recorded (the dashboard shows "No photo").
+    snapshotPath: { type: String, default: null },
     entrySnapshotPath: { type: String, default: null }, // when it was first seen parked
     exitSnapshotPath: { type: String, default: null },  // when it left
+    isTest: { type: Boolean, default: false }, // copied from the video it came from
+    // Position in the video (seconds) - what a hand-labelled list is written in, so the
+    // evaluation script (detection-service/tools/evaluate.py) can compare like with like.
+    videoStartSeconds: { type: Number, default: null },
+    videoEndSeconds: { type: Number, default: null },
     acknowledged: { type: Boolean, default: false },
     fine: { type: mongoose.Schema.Types.ObjectId, ref: "Fine" },
   },

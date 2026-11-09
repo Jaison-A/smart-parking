@@ -1,9 +1,25 @@
 import { Router } from "express";
 import { Violation } from "../models/Violation.js";
+import { NotificationLog } from "../models/NotificationLog.js";
 import { requireAuth } from "../middleware/auth.js";
 
 export const violationsRouter = Router();
 violationsRouter.use(requireAuth);
+
+// Adds `notifications` (what was sent, or why nothing was) to each violation, so the
+// dashboard can answer "was the owner told?" without a second request per card.
+async function withNotifications(violations) {
+  if (!violations.length) return [];
+  const logs = await NotificationLog.find({ violation: { $in: violations.map((v) => v._id) } })
+    .select("violation channel status provider error to createdAt").sort({ createdAt: 1 }).lean();
+  const byViolation = new Map();
+  for (const l of logs) {
+    const key = String(l.violation);
+    if (!byViolation.has(key)) byViolation.set(key, []);
+    byViolation.get(key).push(l);
+  }
+  return violations.map((v) => ({ ...v.toObject(), notifications: byViolation.get(String(v._id)) || [] }));
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -50,8 +66,29 @@ violationsRouter.get("/grouped", async (req, res, next) => {
       if (!days.has(day)) days.set(day, []);
       days.get(day).push(v);
     }
+    const enriched = new Map((await withNotifications(all)).map((v) => [String(v._id), v]));
     res.json({
-      days: [...days.entries()].map(([date, violations]) => ({ date, count: violations.length, violations })),
+      days: [...days.entries()].map(([date, violations]) => ({
+        date, count: violations.length, violations: violations.map((v) => enriched.get(String(v._id))),
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+// What the evaluation script reads (detection-service/tools/evaluate.py): the detected
+// violations with their position in the video, in seconds.
+//   GET /api/violations/export?video=<videoId>
+violationsRouter.get("/export", async (req, res, next) => {
+  try {
+    const all = await Violation.find(baseFilter(req)).sort({ videoStartSeconds: 1 }).lean();
+    const usable = all.filter((v) => typeof v.videoStartSeconds === "number");
+    res.json({
+      skipped: all.length - usable.length, // older records saved before video times were kept
+      violations: usable.map((v) => ({
+        id: String(v._id), zone: v.zoneName, kind: v.kind, plate: v.plate || null,
+        start_s: v.videoStartSeconds,
+        end_s: typeof v.videoEndSeconds === "number" ? v.videoEndSeconds : v.videoStartSeconds + v.durationSeconds,
+      })),
     });
   } catch (err) { next(err); }
 });
@@ -87,16 +124,15 @@ violationsRouter.get("/by-date/:date", async (req, res, next) => {
       $expr: { $eq: [dayExpr(tz), date] },
     }).populate("fine").populate("session").sort({ createdAt: -1 });
 
-    res.json({ date, count: violations.length, violations });
+    res.json({ date, count: violations.length, violations: await withNotifications(violations) });
   } catch (err) { next(err); }
 });
 
 violationsRouter.get("/", async (req, res, next) => {
   try {
-    res.json({
-      violations: await Violation.find(baseFilter(req)).populate("fine").populate("session")
-        .sort({ createdAt: -1 }).limit(200),
-    });
+    const violations = await Violation.find(baseFilter(req)).populate("fine").populate("session")
+      .sort({ createdAt: -1 }).limit(200);
+    res.json({ violations: await withNotifications(violations) });
   } catch (err) { next(err); }
 });
 

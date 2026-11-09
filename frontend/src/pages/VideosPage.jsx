@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, apiErrorMessage } from "../lib/api.js";
 
 const STATUS_STYLE = {
-  uploaded: "text-ink/50", queued: "text-amber", running: "text-amber",
+  uploaded: "text-ink/50", queued: "text-amber", running: "text-amber", paused: "text-amber",
   completed: "text-ok", failed: "text-signal", stopped: "text-ink/50",
 };
 
@@ -140,6 +140,9 @@ export default function VideosPage() {
                   {v.sourceType === "image" && (
                     <span className="ml-2 text-xs border border-amber text-amber px-1.5 py-0.5">TEST IMAGE</span>
                   )}
+                  {v.isTest && v.sourceType !== "image" && (
+                    <span className="ml-2 text-xs border border-amber text-amber px-1.5 py-0.5">TEST</span>
+                  )}
                 </div>
                 <div className="text-xs text-ink/50 mt-0.5 truncate">
                   {v.sourceType === "stream"
@@ -148,7 +151,7 @@ export default function VideosPage() {
                 </div>
               </div>
               <div className={`text-xs font-medium shrink-0 ${STATUS_STYLE[v.status] || ""}`}>
-                {v.status}{v.status === "running" && v.sourceType === "upload" ? ` · ${v.progress}%` : ""}
+                {v.status}{["running", "paused"].includes(v.status) && v.sourceType === "upload" ? ` · ${v.progress}%` : ""}
               </div>
             </button>
           ))}

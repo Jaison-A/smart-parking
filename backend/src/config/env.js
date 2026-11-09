@@ -24,4 +24,11 @@ export const env = {
   finePerExtraMinute: Number(process.env.FINE_PER_EXTRA_MINUTE || 20),
   // Flat fine for spacing / bay violations (they have no "time over the limit").
   fineRuleAmount: Number(process.env.FINE_RULE_AMOUNT || 200),
+  // Messages to registered vehicle owners. "mock" only records what WOULD be sent (demo).
+  notifyProvider: (process.env.NOTIFY_PROVIDER || "mock").toLowerCase(),
+  notifyDefaultCountryCode: process.env.NOTIFY_DEFAULT_COUNTRY_CODE || "+91",
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
+  twilioSmsFrom: process.env.TWILIO_SMS_FROM || "",
+  twilioWhatsappFrom: process.env.TWILIO_WHATSAPP_FROM || "",
 };

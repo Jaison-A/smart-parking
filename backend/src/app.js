@@ -11,6 +11,10 @@ import { videosRouter } from "./routes/videos.js";
 import { violationsRouter } from "./routes/violations.js";
 import { finesRouter } from "./routes/fines.js";
 import { settingsRouter } from "./routes/settings.js";
+import { auditRouter } from "./routes/audit.js";
+import { ownersRouter } from "./routes/owners.js";
+import { notificationsRouter } from "./routes/notifications.js";
+import { testDataRouter } from "./routes/testData.js";
 import { detectorEventsRouter } from "./routes/detectorEvents.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 
@@ -37,6 +41,10 @@ export function createApp() {
   app.use("/api/violations", violationsRouter);
   app.use("/api/fines", finesRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/audit", auditRouter);
+  app.use("/api/owners", ownersRouter);
+  app.use("/api/notifications", notificationsRouter);
+  app.use("/api/test-data", testDataRouter);
   app.use("/api/detector/events", detectorEventsRouter);
 
   app.use(notFound);

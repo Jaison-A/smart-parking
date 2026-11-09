@@ -42,7 +42,7 @@ test("the result is whole rupees", () => {
 const ok = { baseAmount: 500, rate: 20, rateUnit: "minute", roundUp: true, ruleAmount: 200 };
 
 test("valid settings are accepted and returned clean", () => {
-  assert.deepEqual(validateFineSettings({ ...ok, baseAmount: "750" }), { ...ok, baseAmount: 750 });
+  assert.deepEqual(validateFineSettings({ ...ok, baseAmount: "750" }), { ...ok, baseAmount: 750, bayRulesEnabled: true });
 });
 
 test("bad settings are rejected with a 400", () => {
@@ -54,4 +54,10 @@ test("bad settings are rejected with a 400", () => {
   for (const input of bad) {
     assert.throws(() => validateFineSettings(input), (e) => e.status === 400, JSON.stringify(input));
   }
+});
+
+test("bays are checked unless switched off, and the switch must be a real boolean", () => {
+  assert.equal(validateFineSettings(ok).bayRulesEnabled, true);
+  assert.equal(validateFineSettings({ ...ok, bayRulesEnabled: false }).bayRulesEnabled, false);
+  assert.throws(() => validateFineSettings({ ...ok, bayRulesEnabled: "no" }), (e) => e.status === 400);
 });

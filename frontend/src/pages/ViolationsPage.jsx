@@ -171,6 +171,17 @@ export default function ViolationsPage({ mode = "all" }) {
 
 const KIND_LABEL = { spacing: "Too close", bay_straddle: "Outside bay", bay_occupied: "Bay occupied" };
 
+// "Was the owner told?" - what was sent, or why nothing was.
+function ownerNotes(v) {
+  return (v.notifications || []).map((n) => {
+    const via = n.channel === "none" ? "" : ` by ${n.channel === "sms" ? "SMS" : "WhatsApp"}`;
+    if (n.status === "sent") return { text: `Owner notified${via}`, tone: "text-ok" };
+    if (n.status === "mock") return { text: `Owner notified${via} (demo - not actually sent)`, tone: "text-amber" };
+    if (n.status === "failed") return { text: `Message to owner${via} failed: ${n.error}`, tone: "text-signal" };
+    return { text: `Owner not notified: ${n.error}`, tone: "text-ink/50" };
+  });
+}
+
 function ViolationCard({ v, onPhoto, onAcknowledge }) {
   return (
     <div className="card overflow-hidden">
@@ -181,7 +192,10 @@ function ViolationCard({ v, onPhoto, onAcknowledge }) {
       </div>
       <div className="p-4">
         <div className="flex items-center justify-between">
-          <span className="mono text-lg">{v.plate || "Plate not read"}</span>
+          <span className="mono text-lg">
+            {v.plate || "Plate not read"}
+            {v.isTest && <span className="ml-2 align-middle text-[10px] border border-amber text-amber px-1.5 py-0.5 font-sans">TEST</span>}
+          </span>
           {v.fine && (
             <span className="text-xs font-medium border border-signal text-signal px-2 py-0.5">
               ₹{v.fine.amount} · {v.fine.status}
@@ -197,6 +211,7 @@ function ViolationCard({ v, onPhoto, onAcknowledge }) {
           {!v.finalized && <span className="text-amber"> · still parked (estimate)</span>}
         </div>
         <div className="text-xs text-ink/40 mt-1">from {fmtTime(v.startedAt)} to {fmtTime(v.endedAt)}</div>
+        {ownerNotes(v).map((n, i) => <div key={i} className={`text-xs mt-1 ${n.tone}`}>{n.text}</div>)}
         {!v.acknowledged && (
           <button className="btn-outline mt-3 text-xs" onClick={() => onAcknowledge(v._id)}>Acknowledge</button>
         )}

@@ -19,6 +19,8 @@ class Zone:
     name: str
     type: str  # "parking" | "no_parking" | "bay"
     polygon: np.ndarray  # int32, pixel coordinates
+    min_gap_ratio: float | None = None  # per-zone spacing override (None = job default)
+    ignore_spacing: bool = False
 
     @property
     def is_restricted(self) -> bool:
@@ -61,7 +63,8 @@ def build_zones(zones: list[ZoneIn], width: int, height: int) -> list[Zone]:
     built = []
     for z in zones:
         pts = np.array([[x * width, y * height] for x, y in z.points], dtype=np.int32)
-        built.append(Zone(id=z.id, name=z.name, type=z.type, polygon=pts))
+        built.append(Zone(id=z.id, name=z.name, type=z.type, polygon=pts,
+                          min_gap_ratio=z.min_gap_ratio, ignore_spacing=z.ignore_spacing))
     return built
 
 

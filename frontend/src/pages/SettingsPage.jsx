@@ -21,6 +21,14 @@ export default function SettingsPage() {
   const [updatedAt, setUpdatedAt] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ kind: "", text: "" });
+  const [testData, setTestData] = useState(null);   // what a one-click delete would remove
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanMessage, setCleanMessage] = useState({ kind: "", text: "" });
+
+  const loadTestData = () =>
+    api.get("/api/test-data/summary").then(({ data }) => setTestData(data.summary)).catch(() => {});
+
+  useEffect(() => { if (isAdmin) loadTestData(); }, [isAdmin]);
 
   useEffect(() => {
     api.get("/api/settings")
@@ -47,6 +55,27 @@ export default function SettingsPage() {
       setMessage({ kind: "error", text: apiErrorMessage(err) });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteTestData = async () => {
+    const t = testData;
+    const ok = window.confirm(
+      `Delete ALL test data?\n\n${t.videos} video(s), ${t.violations} violation(s), ${t.fines} fine(s), ` +
+      `${t.sessions} session(s) and their photos.\n\nThis cannot be undone.`
+    );
+    if (!ok) return;
+    setCleaning(true);
+    setCleanMessage({ kind: "", text: "" });
+    try {
+      const { data } = await api.delete("/api/test-data");
+      const r = data.removed;
+      setCleanMessage({ kind: "ok", text: `Deleted ${r.videos} video(s), ${r.violations} violation(s), ${r.fines} fine(s) and ${r.filesRemoved} file(s).` });
+      loadTestData();
+    } catch (err) {
+      setCleanMessage({ kind: "error", text: apiErrorMessage(err) });
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -94,6 +123,18 @@ export default function SettingsPage() {
           </span>
         </label>
 
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={form.bayRulesEnabled !== false}
+            onChange={set("bayRulesEnabled")} disabled={!isAdmin} />
+          <span>
+            Check parking bays
+            <span className="block text-xs text-ink/50">
+              Off: bays stay drawn on the feed, but vehicles are not allocated to them and no
+              "outside bay" or "bay occupied" violations are raised. Applies the next time detection starts.
+            </span>
+          </span>
+        </label>
+
         <Field label="Fine for spacing / bay violations (₹)" hint="A flat amount - these have no time over the limit.">
           <input type="number" min="0" step="1" className="field" value={form.ruleAmount}
             onChange={set("ruleAmount")} disabled={!isAdmin} required />
@@ -122,6 +163,31 @@ export default function SettingsPage() {
           {updatedAt && <span className="text-xs text-ink/40">Last saved {new Date(updatedAt).toLocaleString()}</span>}
         </div>
       </form>
+
+      {isAdmin && (
+        <div className="card p-5 mt-6">
+          <h2 className="font-medium">Test data</h2>
+          <p className="text-xs text-ink/50 mt-1 mb-3">
+            Records from test images, and from any video you have marked as a test, are kept apart
+            from real ones. Delete them all in one go when you have finished testing.
+          </p>
+          {testData ? (
+            <div className="text-sm mb-3">
+              {testData.videos} video(s) · {testData.violations} violation(s) · {testData.fines} fine(s) · {testData.sessions} session(s)
+              {testData.running.length > 0 && (
+                <div className="text-amber mt-1">Still running: {testData.running.join(", ")} - stop detection before deleting.</div>
+              )}
+            </div>
+          ) : <div className="text-sm text-ink/50 mb-3">Loading…</div>}
+          {cleanMessage.text && (
+            <div className={`text-sm mb-3 ${cleanMessage.kind === "ok" ? "text-ok" : "text-signal"}`}>{cleanMessage.text}</div>
+          )}
+          <button className="btn-danger" onClick={deleteTestData}
+            disabled={cleaning || !testData || testData.videos === 0 || testData.running.length > 0}>
+            {cleaning ? "Deleting…" : "Delete all test data"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

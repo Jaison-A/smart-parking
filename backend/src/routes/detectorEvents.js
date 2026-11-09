@@ -8,6 +8,7 @@ import { Violation } from "../models/Violation.js";
 import { requireDetectorKey } from "../middleware/detectorAuth.js";
 import { issueFineForViolation, finalizeFineAmount } from "../services/fineService.js";
 import { notifyControllers } from "../services/notifier.js";
+import { notifyOwnerOfFine } from "../services/ownerMessages.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT_DIR = path.resolve(__dirname, "../../uploads/snapshots");
@@ -35,15 +36,23 @@ detectorEventsRouter.post("/", async (req, res, next) => {
         await handleViolation(event);
         break;
       case "job_progress":
-        await Video.findByIdAndUpdate(event.videoId, { progress: event.progress, status: "running" });
+        // Only while the video is still in flight: a progress event that was already on its way
+        // when someone paused or stopped the job must not switch it back to "running".
+        await Video.updateOne({ _id: event.videoId, status: { $in: ["queued", "running"] } }, { $set: {
+          // A resumed job's first heartbeat carries no progress (null): keep the saved value.
+          ...(typeof event.progress === "number" && { progress: event.progress }),
+          status: "running",
+          // Saved so a restarted detector can resume from here (see services/jobReconciler.js)
+          ...(event.checkpoint && { checkpoint: event.checkpoint }),
+        } });
         notifyControllers("job:progress", { videoId: event.videoId, progress: event.progress, vehicles: event.vehicles });
         break;
       case "job_finished":
-        await Video.findByIdAndUpdate(event.videoId, { status: event.status, progress: 100 });
+        await Video.updateOne({ _id: event.videoId }, { $set: { status: event.status, progress: 100 } });
         notifyControllers("job:finished", { videoId: event.videoId, status: event.status });
         break;
       case "job_failed":
-        await Video.findByIdAndUpdate(event.videoId, { status: "failed", error: event.error });
+        await Video.updateOne({ _id: event.videoId }, { $set: { status: "failed", error: event.error } });
         notifyControllers("job:failed", { videoId: event.videoId, error: event.error });
         break;
       default:
@@ -72,6 +81,8 @@ async function upsertSession(event, extra = {}) {
       sessionKey: s.sessionId, video: event.videoId, trackId: s.trackId,
       zoneName: s.zoneName, zoneType: s.zoneType, bayName: s.bayName, vehicleType: s.vehicleType,
       plate: s.plate, plateConfidence: s.plateConfidence,
+      plateReads: s.plateReads ?? 0, plateStatus: s.plateStatus ?? "reading",
+      videoStartSeconds: s.videoStart ?? null, videoEndSeconds: s.videoEnd ?? null,
       startedAt: s.startedAt, endedAt: s.endedAt, durationSeconds: s.durationSeconds,
       ...(entrySnapshotPath && { entrySnapshotPath }),
       ...extra,
@@ -92,6 +103,7 @@ async function handleSessionEnded(event) {
     const violation = await Violation.findOne({ session: session._id }).populate("fine");
     if (violation && !violation.finalized) {
       violation.endedAt = session.endedAt;
+      violation.videoEndSeconds = session.videoEndSeconds;
       violation.durationSeconds = session.durationSeconds;
       violation.finalized = true;
       if (exitSnapshotPath) violation.exitSnapshotPath = exitSnapshotPath;
@@ -111,12 +123,14 @@ async function handleViolation(event) {
   const session = await upsertSession(event, { isViolation: true });
   const violationSnapshotPath = await saveSnapshot(event.violationSnapshot, `${session.sessionKey}-violation`);
 
+  const video = await Video.findById(event.videoId).select("isTest").lean();
   const violation = await Violation.create({
     session: session._id, video: event.videoId, zoneName: session.zoneName,
+    isTest: !!video?.isTest, videoStartSeconds: session.videoStartSeconds,
     kind: event.session.violationKind || "no_parking", detail: event.session.violationDetail || null,
     vehicleType: session.vehicleType, plate: session.plate,
     startedAt: session.startedAt, durationSeconds: session.durationSeconds,
-    snapshotPath: violationSnapshotPath || "",
+    snapshotPath: violationSnapshotPath || null,
     entrySnapshotPath: session.entrySnapshotPath || null,
   });
 
@@ -132,4 +146,8 @@ async function handleViolation(event) {
     videoId: event.videoId,
     violation: await violation.populate("fine"),
   });
+
+  // Tell the registered owner, if there is one. Not awaited: a slow SMS provider must not
+  // delay the webhook, and it never throws (every outcome is written to the message log).
+  void notifyOwnerOfFine(violation, fine);
 }

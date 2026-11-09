@@ -56,13 +56,25 @@ def start_job(req: JobRequest):
 @app.get("/jobs/{job_id}", dependencies=[Depends(require_key)])
 def job_status(job_id: str):
     job = jobs.get(job_id) or _404()
-    return {"jobId": job_id, "status": job.status, "progress": job.progress, "error": job.error}
+    out = {"jobId": job_id, "status": job.status, "progress": job.progress, "error": job.error}
+    if job.status == "paused":
+        out["checkpoint"] = job.checkpoint  # the backend saves this, then the job can be resumed
+    return out
 
 
 @app.post("/jobs/{job_id}/stop", dependencies=[Depends(require_key)])
 def stop_job(job_id: str):
     (jobs.get(job_id) or _404()).stop()
     return {"jobId": job_id, "stopping": True}
+
+
+@app.post("/jobs/{job_id}/pause", dependencies=[Depends(require_key)])
+def pause_job(job_id: str):
+    job = jobs.get(job_id) or _404()
+    if job.status not in ("queued", "running"):
+        raise HTTPException(409, f"This job is {job.status}, so it cannot be paused")
+    job.pause()
+    return {"jobId": job_id, "pausing": True}
 
 
 @app.get("/jobs/{job_id}/stream")

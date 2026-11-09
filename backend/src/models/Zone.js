@@ -13,6 +13,10 @@ const zoneSchema = new mongoose.Schema(
     type: { type: String, enum: ["parking", "no_parking", "bay"], required: true },
     points: { type: [pointSchema], validate: (v) => v.length >= 3 },
     video: { type: mongoose.Schema.Types.ObjectId, ref: "Video", required: true },
+    // Spacing rule for a parking zone: gap as a share of vehicle width. null = use the
+    // detector's default; 0 = no spacing check here. ignoreSpacing switches it off outright.
+    minGapRatio: { type: Number, default: null, min: 0, max: 2 },
+    ignoreSpacing: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }

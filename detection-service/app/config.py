@@ -46,6 +46,11 @@ class Settings:
     # A plate is only ~1/4 of a car's width, so below this the OCR has nothing to
     # read - skipping saves a lot of CPU. 0 disables the check.
     plate_min_vehicle_px: int = int(os.getenv("PLATE_MIN_VEHICLE_PX", "140"))
+    # With a dedicated plate-detector model (PLATE_MODEL) the plate is found directly,
+    # so smaller vehicles are worth trying; and the plate itself must still be wide
+    # enough for OCR to have anything to read.
+    plate_min_vehicle_px_with_model: int = int(os.getenv("PLATE_MIN_VEHICLE_PX_WITH_MODEL", "70"))
+    plate_min_plate_px: int = int(os.getenv("PLATE_MIN_PLATE_PX", "45"))
 
     plate_ocr_enabled: bool = _flag("PLATE_OCR", True)
     plate_model: str = os.getenv("PLATE_MODEL", "")
